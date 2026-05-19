@@ -58,12 +58,9 @@ export async function POST() {
     .maybeSingle();
 
   const profile: ParsedResume = {
-    technical_skills: [
-      ...new Set([
-        ...(existing?.technical_skills ?? []),
-        ...keywords,
-      ]),
-    ].slice(0, 40),
+    technical_skills: Array.from(
+      new Set([...(existing?.technical_skills ?? []), ...keywords])
+    ).slice(0, 40),
     soft_skills: existing?.soft_skills ?? [],
     years_experience: Number(existing?.years_experience) || 0,
     ideal_role: existing?.ideal_role ?? "Software Engineer",
