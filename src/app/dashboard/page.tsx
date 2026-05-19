@@ -5,8 +5,15 @@ import { DashboardClient } from "@/components/DashboardClient";
 import { Button } from "@/components/ui/button";
 import { getUserProfile } from "@/app/actions/match-jobs";
 
-export default async function DashboardPage() {
+interface DashboardPageProps {
+  searchParams: { fromUpload?: string };
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps) {
   const { profile } = await getUserProfile();
+  const showMatchingPipeline = searchParams.fromUpload === "1";
 
   return (
     <main className="min-h-screen">
@@ -18,7 +25,10 @@ export default async function DashboardPage() {
             Back home
           </Link>
         </Button>
-        <DashboardClient initialProfile={profile} />
+        <DashboardClient
+          initialProfile={profile}
+          showMatchingPipeline={showMatchingPipeline}
+        />
       </div>
     </main>
   );

@@ -73,7 +73,10 @@ export async function POST(request: NextRequest) {
     } catch (nimErr) {
       if (nimErr instanceof NimParseError) {
         const status = nimErr.code === "api" ? 502 : 400;
-        return NextResponse.json({ error: nimErr.message }, { status });
+        return NextResponse.json(
+          { error: nimErr.message, code: nimErr.code },
+          { status }
+        );
       }
       const message =
         nimErr instanceof Error ? nimErr.message : "AI parsing failed";

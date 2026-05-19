@@ -5,27 +5,47 @@ import Link from "next/link";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { matchJobsForProfile } from "@/app/actions/match-jobs";
 import { JobCard } from "@/components/JobCard";
+import { UploadProgressChecklist } from "@/components/UploadProgressChecklist";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
+import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
 
 interface DashboardClientProps {
   initialProfile: ParsedResume | null;
+  showMatchingPipeline?: boolean;
 }
 
-export function DashboardClient({ initialProfile }: DashboardClientProps) {
+export function DashboardClient({
+  initialProfile,
+  showMatchingPipeline = false,
+}: DashboardClientProps) {
   const [profile] = useState<ParsedResume | null>(initialProfile);
   const [jobs, setJobs] = useState<MatchedJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [refining, setRefining] = useState(false);
 
+  const [matchingActive, setMatchingActive] = useState(showMatchingPipeline);
+  const [matchingComplete, setMatchingComplete] = useState(false);
+  const [matchingError, setMatchingError] = useState<string | null>(null);
+
   const loadMatches = () => {
+    setMatchingActive(true);
+    setMatchingError(null);
+
     startTransition(async () => {
-      setError(null);
       const { jobs: matched, error: matchError } = await matchJobsForProfile();
-      if (matchError) setError(matchError);
+      if (matchError) {
+        setMatchingError(matchError);
+        setError(matchError);
+        setMatchingActive(false);
+        return;
+      }
       setJobs(matched);
+      setMatchingComplete(true);
+      setMatchingActive(false);
+      setError(null);
     });
   };
 
@@ -53,6 +73,10 @@ export function DashboardClient({ initialProfile }: DashboardClientProps) {
     }
   };
 
+  const completedPhases = new Set<UploadPipelinePhase>(
+    matchingComplete ? ["parsing", "analyzing", "matching"] : ["parsing", "analyzing"]
+  );
+
   if (!profile) {
     return (
       <div className="mx-auto max-w-lg text-center">
@@ -66,9 +90,12 @@ export function DashboardClient({ initialProfile }: DashboardClientProps) {
         <Button className="mt-6" asChild>
           <Link href="/#upload">Upload resume</Link>
         </Button>
-        </div>
+      </div>
     );
   }
+
+  const showPipeline =
+    showMatchingPipeline && (matchingActive || matchingError || matchingComplete);
 
   return (
     <div className="space-y-8">
@@ -106,6 +133,15 @@ export function DashboardClient({ initialProfile }: DashboardClientProps) {
         </div>
       </div>
 
+      {showPipeline && (
+        <UploadProgressChecklist
+          activePhase={matchingActive ? "matching" : null}
+          completedPhases={completedPhases}
+          errorPhase={matchingError ? "matching" : null}
+          errorMessage={matchingError}
+        />
+      )}
+
       <div className="flex flex-wrap gap-2">
         <Badge variant="secondary">
           {profile.years_experience}+ years experience
@@ -117,18 +153,18 @@ export function DashboardClient({ initialProfile }: DashboardClientProps) {
         ))}
       </div>
 
-      {error && (
+      {error && !showPipeline && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {error}
         </div>
       )}
 
-      {isPending && jobs.length === 0 ? (
+      {!showPipeline && isPending && jobs.length === 0 ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">
           <Loader2 className="mr-2 h-6 w-6 animate-spin" />
           Finding your best matches…
         </div>
-      ) : jobs.length === 0 && !error ? (
+      ) : jobs.length === 0 && !error && !matchingActive ? (
         <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
           <p>No matching jobs yet.</p>
           <p className="mt-2 text-sm">
@@ -136,11 +172,13 @@ export function DashboardClient({ initialProfile }: DashboardClientProps) {
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          {jobs.map((job) => (
-            <JobCard key={job.id} job={job} onDismiss={handleDismiss} />
-          ))}
-        </div>
+        !matchingActive && (
+          <div className="grid gap-6 md:grid-cols-2">
+            {jobs.map((job) => (
+              <JobCard key={job.id} job={job} onDismiss={handleDismiss} />
+            ))}
+          </div>
+        )
       )}
     </div>
   );

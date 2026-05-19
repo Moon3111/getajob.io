@@ -1,3 +1,8 @@
+import type {
+  ApifyRunStartResponse,
+  ApifyWebhookConfig,
+  ApifyWebhookPayload,
+} from "@/lib/apify-types";
 import type { ScraperJobInput } from "@/lib/types";
 
 const APIFY_BASE = "https://api.apify.com/v2";
@@ -9,28 +14,71 @@ function getToken(): string {
 }
 
 function getActorId(): string {
-  return (
-    process.env.APIFY_ACTOR_ID ??
-    "bebity/linkedin-jobs-scraper"
-  );
+  return process.env.APIFY_ACTOR_ID ?? "bebity/linkedin-jobs-scraper";
 }
 
-async function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
+export function getAppBaseUrl(): string {
+  const explicit =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.APP_URL ??
+    (process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : undefined);
+
+  if (!explicit) {
+    throw new Error(
+      "Set NEXT_PUBLIC_APP_URL or deploy on Vercel (VERCEL_URL) for Apify webhooks"
+    );
+  }
+  return explicit.replace(/\/$/, "");
 }
 
-export async function runApifyJobScraper(
+export function buildApifyWebhookUrl(): string {
+  const secret = process.env.APIFY_WEBHOOK_SECRET;
+  if (!secret) {
+    throw new Error("APIFY_WEBHOOK_SECRET is not configured");
+  }
+  const base = getAppBaseUrl();
+  return `${base}/api/webhooks/apify?secret=${encodeURIComponent(secret)}`;
+}
+
+export function verifyApifyWebhookSecret(request: Request): boolean {
+  const secret = process.env.APIFY_WEBHOOK_SECRET;
+  if (!secret) return false;
+
+  const url = new URL(request.url);
+  const querySecret = url.searchParams.get("secret");
+  const headerSecret = request.headers.get("x-apify-webhook-secret");
+
+  return querySecret === secret || headerSecret === secret;
+}
+
+/**
+ * Starts an Apify Actor run without blocking on completion.
+ * Registers a webhook for ACTOR.RUN.SUCCEEDED → /api/webhooks/apify
+ */
+export async function triggerApifyActorRunAsync(
   input: Record<string, unknown> = {}
-): Promise<ScraperJobInput[]> {
+): Promise<{ runId: string; status: string }> {
   const token = getToken();
   const actorId = encodeURIComponent(getActorId().replace("/", "~"));
+  const webhookUrl = buildApifyWebhookUrl();
+
+  const webhooks: ApifyWebhookConfig[] = [
+    {
+      eventTypes: ["ACTOR.RUN.SUCCEEDED"],
+      requestUrl: webhookUrl,
+      payloadTemplate: `{"eventType":"{{eventType}}","resource":{{resource}}}`,
+      headersTemplate: `{"Content-Type":"application/json","x-apify-webhook-secret":"${process.env.APIFY_WEBHOOK_SECRET}"}`,
+    },
+  ];
 
   const runRes = await fetch(
     `${APIFY_BASE}/acts/${actorId}/runs?token=${token}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, webhooks }),
     }
   );
 
@@ -38,35 +86,27 @@ export async function runApifyJobScraper(
     throw new Error(`Apify run start failed: ${await runRes.text()}`);
   }
 
-  const run = await runRes.json();
+  const run = (await runRes.json()) as ApifyRunStartResponse;
   const runId = run.data?.id;
   if (!runId) throw new Error("Apify did not return a run id");
 
-  const deadline = Date.now() + 10 * 60 * 1000;
-  let status = "RUNNING";
-  let datasetId: string | undefined = run.data?.defaultDatasetId;
+  return {
+    runId,
+    status: run.data?.status ?? "RUNNING",
+  };
+}
 
-  while (status === "RUNNING" || status === "READY") {
-    if (Date.now() > deadline) {
-      throw new Error("Apify run timed out after 10 minutes");
-    }
-    await sleep(5_000);
+export function extractDatasetIdFromWebhook(
+  payload: ApifyWebhookPayload
+): string | null {
+  return payload.resource?.defaultDatasetId ?? null;
+}
 
-    const statusRes = await fetch(
-      `${APIFY_BASE}/actor-runs/${runId}?token=${token}`
-    );
-    const statusBody = await statusRes.json();
-    status = statusBody.data?.status;
-    datasetId = statusBody.data?.defaultDatasetId ?? datasetId;
-
-    if (status === "FAILED" || status === "ABORTED") {
-      throw new Error(`Apify run ${status}`);
-    }
-  }
-
-  if (!datasetId) {
-    throw new Error("Apify run completed without a dataset id");
-  }
+/** Download and normalize scraped items from an Apify dataset. */
+export async function fetchApifyDatasetItems(
+  datasetId: string
+): Promise<ScraperJobInput[]> {
+  const token = getToken();
   const itemsRes = await fetch(
     `${APIFY_BASE}/datasets/${datasetId}/items?token=${token}&format=json`
   );
@@ -75,11 +115,11 @@ export async function runApifyJobScraper(
     throw new Error(`Apify dataset fetch failed: ${await itemsRes.text()}`);
   }
 
-  const items: Record<string, unknown>[] = await itemsRes.json();
-  return items.map(mapApifyItemToJob).filter(Boolean) as ScraperJobInput[];
+  const items = (await itemsRes.json()) as Record<string, unknown>[];
+  return items.map(mapApifyItemToJob).filter((j): j is ScraperJobInput => j !== null);
 }
 
-function mapApifyItemToJob(
+export function mapApifyItemToJob(
   item: Record<string, unknown>
 ): ScraperJobInput | null {
   const title =

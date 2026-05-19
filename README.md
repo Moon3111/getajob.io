@@ -61,9 +61,18 @@ Open [http://localhost:3000](http://localhost:3000), upload a resume, then view 
 | Resume upload | `POST /api/parse-resume` | PDF/DOCX → text → NIM JSON profile |
 | Job ingest | `POST /api/ingest-jobs` | Embed jobs, dedupe at 0.95 similarity |
 | Matching | `matchJobsForProfile` server action | Embed profile → `match_jobs` RPC |
-| Apify cron | `POST /api/cron/fetch-jobs` | Apify actor → embed → Supabase |
+| Apify cron | `POST /api/cron/fetch-jobs` | Starts Apify actor async (returns immediately) |
+| Apify webhook | `POST /api/webhooks/apify` | Ingests dataset when actor succeeds |
 | Auth | `/auth/login`, `@supabase/ssr` middleware | Cookie sessions, profile persistence |
 | Feedback | `matches` table + `/api/refine-profile` | Save/dismiss + profile refinement |
+
+## Tests
+
+```bash
+npm test
+```
+
+Covers `parse-resume` boundary cases: 2MB cap, short text, and `invalid_json` from NIM.
 
 ## Manual job ingest (dev)
 

@@ -7,6 +7,9 @@
       "maxDuration": 300
     },
     "src/app/api/cron/fetch-jobs/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/webhooks/apify/route.ts": {
       "maxDuration": 300
     }
   }
