@@ -42,7 +42,7 @@ CREATE OR REPLACE FUNCTION match_jobs_hybrid_v2(
   cv_embedding vector(1024) DEFAULT NULL,
   manual_embedding vector(1024) DEFAULT NULL,
   p_career_level text DEFAULT 'mid',
-  match_threshold float DEFAULT 0.58,
+  match_threshold float DEFAULT 0.52,
   limit_count int DEFAULT 30,
   offset_count int DEFAULT 0,
   p_user_id uuid DEFAULT NULL
@@ -132,10 +132,9 @@ BEGIN
       END AS combined_score
     FROM job_scores
     WHERE
-      (cv_embedding IS NULL OR job_scores.cv_distance < (1 - match_threshold))
-      AND (
-        manual_embedding IS NULL
-        OR job_scores.manual_distance < (1 - match_threshold)
+      (
+        (cv_embedding IS NOT NULL AND job_scores.cv_distance < (1 - match_threshold))
+        OR (manual_embedding IS NOT NULL AND job_scores.manual_distance < (1 - match_threshold))
       )
       AND job_scores.level_mult >= 0.4
   )

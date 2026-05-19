@@ -100,7 +100,9 @@ export async function getHybridMatchedJobs(
         cvEmbedding = await embedQuery(profileToEmbeddingText(parsed));
       }
       if (manualKeywords.length > 0) {
-        manualEmbedding = await embedQuery(manualKeywords.join(", "));
+        manualEmbedding = await embedQuery(
+          `Target role: ${parsed.ideal_role}. Career level: ${careerLevel}. Top skills: ${manualKeywords.join(", ")}.`
+        );
       }
     } catch (embedErr) {
       const message =
@@ -269,13 +271,24 @@ async function runMatchRpc(
     throw new Error(fallback.error.message);
   }
 
-  return (fallback.data ?? []).map(
-    (row: HybridMatchRow & { distance: number }) => ({
-      ...row,
-      match_score: 1 - row.distance,
-      combined_score: 1 - row.distance,
-    })
-  );
+  let rows = (fallback.data ?? []) as Array<HybridMatchRow & { distance: number }>;
+  if (!rows.length) {
+    const relaxed = await serviceClient.rpc("match_jobs", {
+      query_embedding: cvFormatted,
+      match_threshold: Math.max(MATCH_THRESHOLD - 0.1, 0.35),
+      match_count: MAX_TOTAL_RESULTS,
+      p_user_id: userId,
+    });
+    if (!relaxed.error && relaxed.data && relaxed.data.length) {
+      rows = relaxed.data as Array<HybridMatchRow & { distance: number }>;
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    match_score: 1 - row.distance,
+    combined_score: 1 - row.distance,
+  }));
 }
 
 function parseStoredVector(stored: string): number[] | null {
