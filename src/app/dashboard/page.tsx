@@ -6,16 +6,24 @@ import { Button } from "@/components/ui/button";
 import { getDashboardContext } from "@/app/actions/match-jobs";
 
 interface DashboardPageProps {
-  searchParams: { fromUpload?: string };
+  searchParams: {
+    fromUpload?: string;
+    scraped?: string;
+    keywords?: string;
+  };
 }
 
 export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
-  const { isAuthenticated, profile, error: profileError } =
+  const { isAuthenticated, profile, jobSearchKeywords, error: profileError } =
     await getDashboardContext();
   const showMatchingPipeline =
     searchParams.fromUpload === "1" && Boolean(profile);
+  const scrapeNotice =
+    searchParams.scraped != null
+      ? `Added ${searchParams.scraped} new job listing(s) for “${decodeURIComponent(searchParams.keywords ?? jobSearchKeywords ?? "")}”.`
+      : undefined;
 
   return (
     <main className="min-h-screen">
@@ -31,6 +39,12 @@ export default async function DashboardPage({
           initialProfile={profile}
           isAuthenticated={isAuthenticated}
           profileError={profileError}
+          initialKeywords={
+            searchParams.keywords
+              ? decodeURIComponent(searchParams.keywords)
+              : jobSearchKeywords
+          }
+          scrapeNotice={scrapeNotice}
           fromUpload={searchParams.fromUpload === "1"}
           showMatchingPipeline={showMatchingPipeline}
         />

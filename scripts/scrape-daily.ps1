@@ -21,7 +21,7 @@ if (-not $ingestUrl) {
 }
 
 & .\.venv\Scripts\python.exe run.py `
-    --sources indeed,jobsdb `
+    --sources indeed,jobsdb,jobs_gov,michael_page,randstad,hkslash `
     --max 25 `
     --push `
     --ingest-url $ingestUrl

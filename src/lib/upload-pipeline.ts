@@ -1,4 +1,8 @@
-export type UploadPipelinePhase = "parsing" | "analyzing" | "matching";
+export type UploadPipelinePhase =
+  | "parsing"
+  | "analyzing"
+  | "scraping"
+  | "matching";
 
 export type UploadStepStatus = "pending" | "active" | "complete" | "error";
 
@@ -10,15 +14,19 @@ export interface UploadPipelineStep {
 export const UPLOAD_PIPELINE_STEPS: UploadPipelineStep[] = [
   {
     id: "parsing",
-    label: "Extracting text from file…",
+    label: "Extracting text from your resume…",
   },
   {
     id: "analyzing",
-    label: "Processing profile with NVIDIA AI…",
+    label: "Building your profile with NVIDIA AI…",
+  },
+  {
+    id: "scraping",
+    label: "Scraping Hong Kong job boards for your keywords…",
   },
   {
     id: "matching",
-    label: "Evaluating local job market alignment (HNSW Match)…",
+    label: "Matching jobs to your profile (vector search)…",
   },
 ];
 

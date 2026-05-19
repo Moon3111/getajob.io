@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get("file");
+    const keywordsRaw = formData.get("keywords");
+    const keywords =
+      typeof keywordsRaw === "string" ? keywordsRaw.trim().slice(0, 200) : "";
 
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
@@ -111,6 +114,8 @@ export async function POST(request: NextRequest) {
             soft: profile.soft_skills,
           },
           intent: profile.ideal_role,
+          job_search_keywords:
+            keywords || profile.ideal_role || null,
           resume_text: trimmed.slice(0, 50_000),
           updated_at: new Date().toISOString(),
         },
@@ -129,6 +134,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       profile,
       saved: Boolean(user),
+      keywords: keywords || profile.ideal_role,
     });
   } catch (err) {
     console.error("parse-resume error:", err);

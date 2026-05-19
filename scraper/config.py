@@ -25,8 +25,10 @@ HEADLESS = env("HEADLESS", "true").lower() not in ("0", "false", "no")
 INGEST_URL = env("INGEST_URL", "http://localhost:3000/api/ingest-jobs")
 CRON_SECRET = env("CRON_SECRET", "")
 LINKEDIN_LI_AT = env("LINKEDIN_LI_AT", "")
+_DEFAULT = (
+    "indeed,jobsdb,jobs_gov,michael_page,randstad,hkslash,"
+    "glassdoor,efinancialcareers,cpjobs,talent_gov,robert_half,ambition"
+)
 DEFAULT_SOURCES = [
-    s.strip()
-    for s in env("SCRAPE_SOURCES", "indeed,jobsdb,google_jobs,bing_jobs").split(",")
-    if s.strip()
+    s.strip() for s in env("SCRAPE_SOURCES", _DEFAULT).split(",") if s.strip()
 ]

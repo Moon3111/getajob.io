@@ -18,6 +18,14 @@ class JobsDBHKScraper(BaseScraper):
         )
 
     def collect_listing_urls(self, page: Page) -> list[dict[str, str]]:
+        try:
+            page.wait_for_selector(
+                "a[data-automation='jobTitle'], article[data-testid='job-card']",
+                timeout=45_000,
+            )
+        except Exception:
+            if "moment" in page.title().lower():
+                page.wait_for_timeout(8000)
         scroll_results(page, times=5)
         listings: list[dict[str, str]] = []
         seen: set[str] = set()

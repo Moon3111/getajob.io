@@ -14,6 +14,7 @@ export type MatchStatus = "saved" | "dismissed" | "applied";
 export async function getDashboardContext(): Promise<{
   isAuthenticated: boolean;
   profile: ParsedResume | null;
+  jobSearchKeywords: string | null;
   error?: string;
 }> {
   const supabase = await createClient();
@@ -22,15 +23,21 @@ export async function getDashboardContext(): Promise<{
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { isAuthenticated: false, profile: null };
+    return { isAuthenticated: false, profile: null, jobSearchKeywords: null };
   }
 
-  const { profile, error } = await getUserProfile();
-  return { isAuthenticated: true, profile, error };
+  const { profile, jobSearchKeywords, error } = await getUserProfile();
+  return {
+    isAuthenticated: true,
+    profile,
+    jobSearchKeywords,
+    error,
+  };
 }
 
 export async function getUserProfile(): Promise<{
   profile: ParsedResume | null;
+  jobSearchKeywords: string | null;
   error?: string;
 }> {
   const supabase = await createClient();
@@ -39,23 +46,23 @@ export async function getUserProfile(): Promise<{
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { profile: null };
+    return { profile: null, jobSearchKeywords: null };
   }
 
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "technical_skills, soft_skills, years_experience, ideal_role, username"
+      "technical_skills, soft_skills, years_experience, ideal_role, username, job_search_keywords"
     )
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (error) {
-    return { profile: null, error: error.message };
+    return { profile: null, jobSearchKeywords: null, error: error.message };
   }
 
   if (!data) {
-    return { profile: null };
+    return { profile: null, jobSearchKeywords: null };
   }
 
   return {
@@ -65,6 +72,7 @@ export async function getUserProfile(): Promise<{
       years_experience: Number(data.years_experience) || 0,
       ideal_role: data.ideal_role ?? "Software Engineer",
     },
+    jobSearchKeywords: data.job_search_keywords ?? null,
   };
 }
 

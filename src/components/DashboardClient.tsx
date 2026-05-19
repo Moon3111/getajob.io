@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Loader2, MapPin, RefreshCw, Sparkles } from "lucide-react";
+import { Loader2, MapPin, RefreshCw, Search, Sparkles } from "lucide-react";
 import {
   getJobsByMatchStatus,
   matchJobsForProfile,
 } from "@/app/actions/match-jobs";
+import { scrapeAndMatchWithKeywords } from "@/app/actions/scrape-match";
 import { seedHongKongJobs } from "@/app/actions/seed-jobs";
+import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/JobCard";
 import { UploadProgressChecklist } from "@/components/UploadProgressChecklist";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,8 @@ interface DashboardClientProps {
   initialProfile: ParsedResume | null;
   isAuthenticated: boolean;
   profileError?: string;
+  initialKeywords?: string | null;
+  scrapeNotice?: string;
   fromUpload?: boolean;
   showMatchingPipeline?: boolean;
 }
@@ -31,6 +35,8 @@ export function DashboardClient({
   initialProfile,
   isAuthenticated,
   profileError,
+  initialKeywords = null,
+  scrapeNotice,
   fromUpload = false,
   showMatchingPipeline = false,
 }: DashboardClientProps) {
@@ -44,6 +50,13 @@ export function DashboardClient({
   const [refining, setRefining] = useState(false);
   const [seeding, setSeeding] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
+  const [searchKeywords, setSearchKeywords] = useState(
+    initialKeywords ?? initialProfile?.ideal_role ?? ""
+  );
+  const [scraping, setScraping] = useState(false);
+  const [scrapeFeedback, setScrapeFeedback] = useState<string | null>(
+    scrapeNotice ?? null
+  );
 
   const [matchingActive, setMatchingActive] = useState(showMatchingPipeline);
   const [matchingComplete, setMatchingComplete] = useState(false);
@@ -137,6 +150,32 @@ export function DashboardClient({
     }
   };
 
+  const runScrapeAndMatch = async () => {
+    const kw = searchKeywords.trim();
+    if (!kw) {
+      setError("Enter keywords to scrape new jobs.");
+      return;
+    }
+    setScraping(true);
+    setError(null);
+    setScrapeFeedback(null);
+    try {
+      const result = await scrapeAndMatchWithKeywords(kw);
+      if (!result.ok) {
+        setError(result.error ?? "Scrape failed");
+        return;
+      }
+      setScrapeFeedback(
+        `Scraped ${result.inserted ?? 0} new jobs · ${result.matchCount ?? 0} matches`
+      );
+      loadMatches();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scrape failed");
+    } finally {
+      setScraping(false);
+    }
+  };
+
   const refineProfile = async () => {
     setRefining(true);
     setError(null);
@@ -153,7 +192,11 @@ export function DashboardClient({
   };
 
   const completedPhases = new Set<UploadPipelinePhase>(
-    matchingComplete ? ["parsing", "analyzing", "matching"] : ["parsing", "analyzing"]
+    matchingComplete
+      ? ["parsing", "analyzing", "scraping", "matching"]
+      : fromUpload
+        ? ["parsing", "analyzing", "scraping"]
+        : ["parsing", "analyzing"]
   );
 
   if (!profile) {
@@ -198,7 +241,7 @@ export function DashboardClient({
             <Link href="/#upload">Upload resume</Link>
           </Button>
         </div>
-        </div>
+      </div>
     );
   }
 
@@ -250,6 +293,42 @@ export function DashboardClient({
           </Button>
         </div>
       </div>
+
+      <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1">
+          <label
+            htmlFor="dash-keywords"
+            className="flex items-center gap-2 text-sm font-medium"
+          >
+            <Search className="h-4 w-4" />
+            Job search keywords
+          </label>
+          <Input
+            id="dash-keywords"
+            value={searchKeywords}
+            onChange={(e) => setSearchKeywords(e.target.value)}
+            placeholder="e.g. software engineer, banking, UX"
+            disabled={scraping}
+          />
+        </div>
+        <Button
+          disabled={scraping || !searchKeywords.trim()}
+          onClick={runScrapeAndMatch}
+        >
+          {scraping ? (
+            <Loader2 className="animate-spin" />
+          ) : (
+            <Search />
+          )}
+          Scrape & match
+        </Button>
+      </div>
+
+      {scrapeFeedback && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-300">
+          {scrapeFeedback}
+        </div>
+      )}
 
       <div className="flex gap-2 border-b">
         {tabLabels.map(({ id, label, count }) => (
@@ -320,8 +399,8 @@ export function DashboardClient({
             <>
               <p>No matching jobs in the database yet.</p>
               <p className="mt-2 text-sm">
-                Load sample Hong Kong listings (LinkedIn, JobsDB, Indeed, Bing,
-                Google Jobs) or connect Apify for live scraping.
+                Load sample Hong Kong listings, run the Python scraper
+                (Indeed, JobsDB, jobs.gov.hk, agencies), or connect Apify.
               </p>
               {isAuthenticated && (
                 <Button

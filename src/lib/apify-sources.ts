@@ -28,18 +28,10 @@ export const HK_JOB_SOURCES: JobSourceConfig[] = [
     envActorKey: "APIFY_ACTOR_INDEED",
     defaultActorId: "misceres/indeed-scraper",
   },
-  {
-    id: "bing_jobs",
-    name: "Bing Jobs",
-    envActorKey: "APIFY_ACTOR_BING",
-  },
-  {
-    id: "google_jobs",
-    name: "Google Jobs",
-    envActorKey: "APIFY_ACTOR_GOOGLE",
-    defaultActorId: "johnvc/google-jobs-scraper",
-  },
 ];
+// HK government & niche platforms: use Python scraper (scraper/README.md)
+// jobs_gov, talent_gov, glassdoor, efinancialcareers, cpjobs, hkslash,
+// michael_page, randstad, robert_half, ambition
 
 export function getDefaultApifyInput(): Record<string, unknown> {
   return {

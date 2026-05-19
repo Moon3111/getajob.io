@@ -6,6 +6,9 @@
     "src/app/api/ingest-jobs/route.ts": {
       "maxDuration": 300
     },
+    "src/app/api/scrape-for-profile/route.ts": {
+      "maxDuration": 300
+    },
     "src/app/api/cron/fetch-jobs/route.ts": {
       "maxDuration": 10
     },

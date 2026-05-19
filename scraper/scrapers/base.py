@@ -70,7 +70,11 @@ class BaseScraper(ABC):
 
         try:
             page.goto(self.search_url(), wait_until="domcontentloaded")
-            time.sleep(2)
+            time.sleep(2.5)
+            if "blocked" in page.title().lower():
+                time.sleep(3)
+                page.goto(self.search_url(), wait_until="domcontentloaded")
+                time.sleep(2)
             listings = self.collect_listing_urls(page)[: self.max_jobs]
 
             for listing in listings:

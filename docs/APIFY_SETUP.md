@@ -2,7 +2,7 @@
 
 ## Recommended: free Python scraper (no Apify token)
 
-See **[scraper/README.md](../scraper/README.md)** — Playwright scrapers for Indeed HK, JobsDB, Google Jobs, Bing Jobs (optional LinkedIn with cookie). Pushes to `/api/ingest-jobs`.
+See **[scraper/README.md](../scraper/README.md)** — Playwright scrapers for Indeed, JobsDB, jobs.gov.hk, talent.gov.hk, agencies, Glassdoor, eFinancialCareers, CPJobs, HKSlash (optional LinkedIn cookie). Pushes to `/api/ingest-jobs`.
 
 ```powershell
 cd scraper
@@ -48,15 +48,33 @@ MATCH_THRESHOLD=0.62
 DEFAULT_JOB_REGION=Hong Kong
 ```
 
-## 3. Sources supported
+## 3. Python scraper sources (recommended)
+
+| Source | ID |
+|--------|-----|
+| Indeed HK | `indeed` |
+| JobsDB | `jobsdb` |
+| jobs.gov.hk | `jobs_gov` |
+| talent.gov.hk | `talent_gov` |
+| LinkedIn | `linkedin` |
+| Glassdoor | `glassdoor` |
+| eFinancialCareers | `efinancialcareers` |
+| CPJobs | `cpjobs` |
+| HKSlash | `hkslash` |
+| Michael Page | `michael_page` |
+| Randstad | `randstad` |
+| Robert Half | `robert_half` |
+| Ambition | `ambition` |
+
+Bing/Google removed (bot blocks). See `scraper/README.md`.
+
+## 4. Optional Apify sources
 
 | Source       | Env key              | Default actor (verify on Apify Store) |
 |-------------|----------------------|-------------------------------------|
 | LinkedIn    | `APIFY_ACTOR_LINKEDIN` | `bebity/linkedin-jobs-scraper`    |
 | JobsDB      | `APIFY_ACTOR_JOBSDB`   | `junglee/jobsdb-scraper`          |
 | Indeed      | `APIFY_ACTOR_INDEED`   | `misceres/indeed-scraper`         |
-| Bing Jobs   | `APIFY_ACTOR_BING`     | Set manually                      |
-| Google Jobs | `APIFY_ACTOR_GOOGLE`   | `johnvc/google-jobs-scraper`      |
 
 Actor IDs change over time — open each actor in the Apify Store and confirm input fields (`keywords`, `location`, `maxItems`) match `src/lib/apify-sources.ts`.
 

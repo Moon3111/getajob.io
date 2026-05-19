@@ -15,6 +15,9 @@ class IndeedHKScraper(BaseScraper):
         return f"https://hk.indeed.com/jobs?q={q}&l={loc}"
 
     def collect_listing_urls(self, page: Page) -> list[dict[str, str]]:
+        if "blocked" in page.title().lower():
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)
         scroll_results(page, times=5)
         listings: list[dict[str, str]] = []
         seen: set[str] = set()
@@ -32,10 +35,20 @@ class IndeedHKScraper(BaseScraper):
                 if link.count() == 0:
                     continue
                 href = link.get_attribute("href") or ""
-                if not href or href in seen:
+                jk = card.get_attribute("data-jk") or ""
+                if jk:
+                    url = f"https://hk.indeed.com/viewjob?jk={jk}"
+                elif href:
+                    url = (
+                        href
+                        if href.startswith("http")
+                        else f"https://hk.indeed.com{href}"
+                    )
+                else:
                     continue
-                url = href if href.startswith("http") else f"https://hk.indeed.com{href}"
-                seen.add(href)
+                if url in seen:
+                    continue
+                seen.add(url)
 
                 title = clean_text(link.inner_text())
                 company = clean_text(

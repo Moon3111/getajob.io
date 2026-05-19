@@ -3,8 +3,10 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FileText, Upload, X } from "lucide-react";
+import { FileText, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { UploadProgressChecklist } from "@/components/UploadProgressChecklist";
 import { cn } from "@/lib/utils";
 import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
@@ -20,11 +22,21 @@ function isAcceptedFile(file: File): boolean {
 interface ParseResumeErrorBody {
   error?: string;
   code?: string;
+  keywords?: string;
+}
+
+interface ScrapeResultBody {
+  inserted?: number;
+  duplicates?: number;
+  scraped?: number;
+  warnings?: string[];
+  error?: string;
 }
 
 export function ResumeUpload() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
+  const [keywords, setKeywords] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [authHint, setAuthHint] = useState(false);
@@ -89,19 +101,21 @@ export function ResumeUpload() {
   const onUpload = async () => {
     if (!file) return;
 
+    const searchKeywords = keywords.trim();
+    if (!searchKeywords) {
+      setErrorMessage("Enter job search keywords (e.g. software engineer, fintech).");
+      return;
+    }
+
     setProcessing(true);
     resetPipeline();
     setAuthHint(false);
     setActivePhase("parsing");
 
-    phaseTimerRef.current = setTimeout(() => {
-      setCompletedPhases((prev) => new Set(prev).add("parsing"));
-      setActivePhase("analyzing");
-    }, 900);
-
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("keywords", searchKeywords);
 
       const res = await fetch("/api/parse-resume", {
         method: "POST",
@@ -110,9 +124,8 @@ export function ResumeUpload() {
 
       const data = (await res.json()) as ParseResumeErrorBody & {
         saved?: boolean;
+        profile?: { ideal_role?: string };
       };
-
-      if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current);
 
       if (!res.ok) {
         const phase: UploadPipelinePhase =
@@ -126,19 +139,50 @@ export function ResumeUpload() {
       }
 
       setCompletedPhases(new Set(["parsing", "analyzing"]));
-      setActivePhase(null);
 
       if (!data.saved) {
         setAuthHint(true);
+        setProcessing(false);
         router.push("/auth/signup?next=/");
         router.refresh();
         return;
       }
 
-      router.push("/dashboard?fromUpload=1");
+      const scrapeKeywords =
+        searchKeywords || data.keywords || data.profile?.ideal_role || "";
+
+      setActivePhase("scraping");
+      const scrapeRes = await fetch("/api/scrape-for-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: scrapeKeywords }),
+      });
+
+      const scrapeData = (await scrapeRes.json()) as ScrapeResultBody;
+
+      if (!scrapeRes.ok) {
+        failAtPhase(
+          "scraping",
+          scrapeData.error ?? "Job scraping failed. Try again from the dashboard."
+        );
+        return;
+      }
+
+      setCompletedPhases(new Set(["parsing", "analyzing", "scraping"]));
+      setActivePhase("matching");
+      await new Promise((r) => setTimeout(r, 600));
+      setCompletedPhases(
+        new Set(["parsing", "analyzing", "scraping", "matching"])
+      );
+      setActivePhase(null);
+
+      const inserted = scrapeData.inserted ?? 0;
+      const q = encodeURIComponent(scrapeKeywords);
+      router.push(
+        `/dashboard?fromUpload=1&scraped=${inserted}&keywords=${q}`
+      );
       router.refresh();
     } catch (err) {
-      if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current);
       failAtPhase(
         activePhase ?? "parsing",
         err instanceof Error ? err.message : "Upload failed"
@@ -153,7 +197,26 @@ export function ResumeUpload() {
       <div className="mb-8 text-center">
         <h2 className="text-2xl font-bold">Upload your resume</h2>
         <p className="mt-2 text-muted-foreground">
-          PDF, DOCX, or DOC up to 2 MB
+          We parse your CV with AI, scrape Hong Kong job boards for your
+          keywords, then rank the best matches.
+        </p>
+      </div>
+
+      <div className="mb-6 space-y-2">
+        <Label htmlFor="job-keywords" className="flex items-center gap-2">
+          <Search className="h-4 w-4" />
+          Job search keywords
+        </Label>
+        <Input
+          id="job-keywords"
+          placeholder="e.g. software engineer, data analyst, fintech"
+          value={keywords}
+          disabled={processing}
+          onChange={(e) => setKeywords(e.target.value)}
+        />
+        <p className="text-xs text-muted-foreground">
+          Used to scrape Indeed, JobsDB, jobs.gov.hk, agencies, and more — then
+          matched to your resume with AI.
         </p>
       </div>
 
@@ -231,7 +294,7 @@ export function ResumeUpload() {
           <Link href="/auth/signup" className="text-primary hover:underline">
             Sign up
           </Link>{" "}
-          to save your profile permanently.
+          to save your profile and run the job scraper.
         </p>
       )}
 
@@ -249,11 +312,11 @@ export function ResumeUpload() {
         )}
         <Button
           size="lg"
-          disabled={!file || processing}
+          disabled={!file || processing || !keywords.trim()}
           onClick={onUpload}
           className="min-w-[200px]"
         >
-          {processing ? "Processing…" : "Parse & find matches"}
+          {processing ? "Working…" : "Parse, scrape & match"}
         </Button>
       </div>
     </section>
