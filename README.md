@@ -36,13 +36,18 @@ cp .env.example .env.local
 1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
 2. Set `NVIDIA_API_KEY` in `.env.local`.
 
-### 4. Run locally
+### 4. Run locally (debug before deploy)
 
 ```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000), upload a resume, then view matches on `/dashboard`.
+
+**Full local debugging guide:** [docs/LOCAL_DEBUG.md](docs/LOCAL_DEBUG.md)  
+**Pre-deploy checks:** `npm test` then `npm run build` (same as Vercel).
+
+Copy `.env.local.example` → `.env.local` or run `vercel env pull` if the project is linked.
 
 ### 5. Deploy to Vercel
 

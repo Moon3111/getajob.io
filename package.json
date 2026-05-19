@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify": "npm run test && npm run build"
   },
   "dependencies": {
     "@radix-ui/react-label": "^2.1.0",
