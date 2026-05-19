@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Briefcase, Loader2 } from "lucide-react";
+import { resolveEmailForLogin } from "@/app/actions/auth";
 import { createClient } from "@/lib/supabase/client";
 import { formatAuthError } from "@/lib/auth-messages";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ function LoginForm() {
   const callbackError = searchParams.get("error");
   const callbackMessage = searchParams.get("message");
 
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(() => {
     if (callbackMessage) return decodeURIComponent(callbackMessage);
@@ -40,10 +41,20 @@ function LoginForm() {
     setError(null);
 
     try {
+      const { email, error: resolveError } = await resolveEmailForLogin(
+        identifier
+      );
+
+      if (!email) {
+        setError(resolveError ?? "Could not resolve account");
+        setLoading(false);
+        return;
+      }
+
       const supabase = createClient();
       const { data, error: authError } = await supabase.auth.signInWithPassword(
         {
-          email: email.trim(),
+          email,
           password,
         }
       );
@@ -81,20 +92,21 @@ function LoginForm() {
         </div>
         <CardTitle>Welcome back</CardTitle>
         <CardDescription>
-          Sign in to save your profile and matches
+          Sign in with email or username to see your matches
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="identifier">Email or username</Label>
             <Input
-              id="email"
-              type="email"
-              autoComplete="email"
+              id="identifier"
+              type="text"
+              autoComplete="username"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@email.com or jane_doe"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
             />
           </div>
           <div className="space-y-2">

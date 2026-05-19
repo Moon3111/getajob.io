@@ -1,0 +1,72 @@
+[
+  {
+    "title": "Software Engineer",
+    "company": "HSBC",
+    "description": "Hong Kong. Build digital banking services with Java, Spring Boot, and cloud on AWS. 3+ years experience. Hybrid work in Central.",
+    "source": "linkedin",
+    "url": "https://www.linkedin.com/jobs"
+  },
+  {
+    "title": "Full Stack Developer",
+    "company": "HKSTP Startup",
+    "description": "Hong Kong Science Park. React, Next.js, TypeScript, PostgreSQL. Bilingual Cantonese/English. Startup environment, equity optional.",
+    "source": "jobsdb",
+    "url": "https://hk.jobsdb.com"
+  },
+  {
+    "title": "Data Analyst",
+    "company": "AIA Hong Kong",
+    "description": "Kowloon Bay office. SQL, Python, Power BI, insurance analytics. Fresh graduates welcome with internship experience.",
+    "source": "indeed",
+    "url": "https://hk.indeed.com"
+  },
+  {
+    "title": "DevOps Engineer",
+    "company": "PCCW Solutions",
+    "description": "Hong Kong. Kubernetes, Terraform, CI/CD, Azure. On-call rotation. 4+ years infrastructure experience required.",
+    "source": "linkedin",
+    "url": "https://www.linkedin.com/jobs"
+  },
+  {
+    "title": "Product Manager (FinTech)",
+    "company": "WeLab",
+    "description": "Central Hong Kong. Mobile app product roadmap, user research, agile squads. FinTech or banking background preferred.",
+    "source": "jobsdb",
+    "url": "https://hk.jobsdb.com"
+  },
+  {
+    "title": "Machine Learning Engineer",
+    "company": "SenseTime",
+    "description": "Hong Kong / Shenzhen. Computer vision, PyTorch, LLM deployment. MSc in CS or equivalent. Mandarin and English.",
+    "source": "linkedin",
+    "url": "https://www.linkedin.com/jobs"
+  },
+  {
+    "title": "Frontend Developer",
+    "company": "Animoca Brands",
+    "description": "Remote-friendly Hong Kong. Web3 UI, React, Three.js. Passion for gaming and NFT platforms.",
+    "source": "indeed",
+    "url": "https://hk.indeed.com"
+  },
+  {
+    "title": "IT Project Coordinator",
+    "company": "MTR Corporation",
+    "description": "Kowloon Bay. IT project delivery, stakeholder management, Cantonese fluency required. PMP certification a plus.",
+    "source": "jobsdb",
+    "url": "https://hk.jobsdb.com"
+  },
+  {
+    "title": "Cloud Solutions Architect",
+    "company": "Microsoft Hong Kong",
+    "description": "Hong Kong. Azure architecture for enterprise clients. Pre-sales and customer workshops. 6+ years cloud experience.",
+    "source": "bing_jobs",
+    "url": "https://www.bing.com/jobs"
+  },
+  {
+    "title": "Graduate Software Developer",
+    "company": "Deloitte Digital HK",
+    "description": "Hong Kong graduate program 2025. Consulting projects, full-stack development, training provided. 3.0 GPA or above.",
+    "source": "google_jobs",
+    "url": "https://www.google.com/search?q=jobs"
+  }
+]

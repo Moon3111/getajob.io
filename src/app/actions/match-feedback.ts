@@ -3,9 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
+export type JobInteractionStatus = "saved" | "dismissed" | "applied";
+
 export async function setMatchStatus(
   jobId: string,
-  status: "saved" | "dismissed",
+  status: JobInteractionStatus,
   score?: number
 ): Promise<{ ok: boolean; error?: string }> {
   const supabase = await createClient();

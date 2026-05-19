@@ -1,15 +1,23 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Sparkles } from "lucide-react";
-import { matchJobsForProfile } from "@/app/actions/match-jobs";
+import { Loader2, MapPin, RefreshCw, Sparkles } from "lucide-react";
+import {
+  getJobsByMatchStatus,
+  matchJobsForProfile,
+} from "@/app/actions/match-jobs";
+import { seedHongKongJobs } from "@/app/actions/seed-jobs";
 import { JobCard } from "@/components/JobCard";
 import { UploadProgressChecklist } from "@/components/UploadProgressChecklist";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DEFAULT_REGION } from "@/lib/matching-config";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
 import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
+import { cn } from "@/lib/utils";
+
+type DashboardTab = "matches" | "saved" | "applied";
 
 interface DashboardClientProps {
   initialProfile: ParsedResume | null;
@@ -27,16 +35,32 @@ export function DashboardClient({
   showMatchingPipeline = false,
 }: DashboardClientProps) {
   const [profile] = useState<ParsedResume | null>(initialProfile);
+  const [tab, setTab] = useState<DashboardTab>("matches");
   const [jobs, setJobs] = useState<MatchedJob[]>([]);
+  const [savedJobs, setSavedJobs] = useState<MatchedJob[]>([]);
+  const [appliedJobs, setAppliedJobs] = useState<MatchedJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [refining, setRefining] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState<string | null>(null);
 
   const [matchingActive, setMatchingActive] = useState(showMatchingPipeline);
   const [matchingComplete, setMatchingComplete] = useState(false);
   const [matchingError, setMatchingError] = useState<string | null>(null);
 
-  const loadMatches = () => {
+  const loadSavedAndApplied = useCallback(() => {
+    startTransition(async () => {
+      const [saved, applied] = await Promise.all([
+        getJobsByMatchStatus("saved"),
+        getJobsByMatchStatus("applied"),
+      ]);
+      if (!saved.error) setSavedJobs(saved.jobs);
+      if (!applied.error) setAppliedJobs(applied.jobs);
+    });
+  }, []);
+
+  const loadMatches = useCallback(() => {
     setMatchingActive(true);
     setMatchingError(null);
 
@@ -52,16 +76,65 @@ export function DashboardClient({
       setMatchingComplete(true);
       setMatchingActive(false);
       setError(null);
+      loadSavedAndApplied();
     });
-  };
+  }, [loadSavedAndApplied]);
+
+  const loadTabData = useCallback(() => {
+    if (tab === "matches") {
+      loadMatches();
+      return;
+    }
+    startTransition(async () => {
+      const status = tab === "saved" ? "saved" : "applied";
+      const { jobs: listed, error: listError } =
+        await getJobsByMatchStatus(status);
+      if (listError) {
+        setError(listError);
+        return;
+      }
+      if (tab === "saved") setSavedJobs(listed);
+      else setAppliedJobs(listed);
+      setError(null);
+    });
+  }, [tab, loadMatches]);
 
   useEffect(() => {
-    if (profile) loadMatches();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (profile) {
+      loadMatches();
+    }
+  }, [profile, loadMatches]);
+
+  useEffect(() => {
+    if (!profile || tab === "matches") return;
+    loadTabData();
+  }, [tab, profile, loadTabData]);
 
   const handleDismiss = (jobId: string) => {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
+  };
+
+  const handleSeedJobs = async () => {
+    setSeeding(true);
+    setSeedMessage(null);
+    setError(null);
+    try {
+      const result = await seedHongKongJobs();
+      if (result.errors?.length) {
+        setError(result.errors.join("; "));
+      } else {
+        setSeedMessage(
+          result.message ??
+            `Inserted ${result.inserted}, skipped ${result.duplicates} duplicates.`
+        );
+        loadMatches();
+        setTab("matches");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Seed failed");
+    } finally {
+      setSeeding(false);
+    }
   };
 
   const refineProfile = async () => {
@@ -125,26 +198,36 @@ export function DashboardClient({
             <Link href="/#upload">Upload resume</Link>
           </Button>
         </div>
-      </div>
+        </div>
     );
   }
 
   const showPipeline =
     showMatchingPipeline && (matchingActive || matchingError || matchingComplete);
 
+  const activeJobs =
+    tab === "matches" ? jobs : tab === "saved" ? savedJobs : appliedJobs;
+
+  const tabLabels: { id: DashboardTab; label: string; count: number }[] = [
+    { id: "matches", label: "Matches", count: jobs.length },
+    { id: "saved", label: "Saved", count: savedJobs.length },
+    { id: "applied", label: "Applied", count: appliedJobs.length },
+  ];
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Your job matches</h1>
-          <p className="mt-1 text-muted-foreground">
-            Targeting:{" "}
+          <p className="mt-1 flex items-center gap-1 text-muted-foreground">
+            <MapPin className="h-4 w-4" />
+            {DEFAULT_REGION} ·{" "}
             <span className="font-medium text-foreground">
               {profile.ideal_role}
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             disabled={refining}
@@ -157,7 +240,7 @@ export function DashboardClient({
             )}
             Refine from saves
           </Button>
-          <Button variant="outline" disabled={isPending} onClick={loadMatches}>
+          <Button variant="outline" disabled={isPending} onClick={loadTabData}>
             {isPending ? (
               <Loader2 className="animate-spin" />
             ) : (
@@ -168,7 +251,30 @@ export function DashboardClient({
         </div>
       </div>
 
-      {showPipeline && (
+      <div className="flex gap-2 border-b">
+        {tabLabels.map(({ id, label, count }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cn(
+              "border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+              tab === id
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+            {count > 0 && (
+              <span className="ml-1.5 rounded-full bg-muted px-1.5 text-xs">
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {showPipeline && tab === "matches" && (
         <UploadProgressChecklist
           activePhase={matchingActive ? "matching" : null}
           completedPhases={completedPhases}
@@ -194,23 +300,60 @@ export function DashboardClient({
         </div>
       )}
 
-      {!showPipeline && isPending && jobs.length === 0 ? (
+      {seedMessage && (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-800 dark:text-emerald-300">
+          {seedMessage}
+        </div>
+      )}
+
+      {tab === "matches" &&
+      !showPipeline &&
+      isPending &&
+      jobs.length === 0 ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground">
           <Loader2 className="mr-2 h-6 w-6 animate-spin" />
           Finding your best matches…
         </div>
-      ) : jobs.length === 0 && !error && !matchingActive ? (
+      ) : activeJobs.length === 0 && !error && !matchingActive ? (
         <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
-          <p>No matching jobs yet.</p>
-          <p className="mt-2 text-sm">
-            Run the Apify cron or ingest sample jobs.
-          </p>
+          {tab === "matches" ? (
+            <>
+              <p>No matching jobs in the database yet.</p>
+              <p className="mt-2 text-sm">
+                Load sample Hong Kong listings (LinkedIn, JobsDB, Indeed, Bing,
+                Google Jobs) or connect Apify for live scraping.
+              </p>
+              {isAuthenticated && (
+                <Button
+                  className="mt-6"
+                  disabled={seeding}
+                  onClick={handleSeedJobs}
+                >
+                  {seeding ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    "Load Hong Kong sample jobs"
+                  )}
+                </Button>
+              )}
+            </>
+          ) : tab === "saved" ? (
+            <p>Save jobs from Matches with the thumbs-up button.</p>
+          ) : (
+            <p>Mark saved jobs as applied to track your applications.</p>
+          )}
         </div>
       ) : (
         !matchingActive && (
           <div className="grid gap-6 md:grid-cols-2">
-            {jobs.map((job) => (
-              <JobCard key={job.id} job={job} onDismiss={handleDismiss} />
+            {activeJobs.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                mode={tab === "matches" ? "feed" : tab}
+                onDismiss={tab === "matches" ? handleDismiss : undefined}
+                onStatusChange={() => loadSavedAndApplied()}
+              />
             ))}
           </div>
         )

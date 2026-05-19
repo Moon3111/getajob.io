@@ -111,13 +111,17 @@ export async function embedText(text: string): Promise<number[]> {
   return vector;
 }
 
-export function profileToEmbeddingText(profile: {
-  technical_skills: string[];
-  soft_skills: string[];
-  years_experience: number;
-  ideal_role: string;
-}): string {
+export function profileToEmbeddingText(
+  profile: {
+    technical_skills: string[];
+    soft_skills: string[];
+    years_experience: number;
+    ideal_role: string;
+  },
+  region = process.env.DEFAULT_JOB_REGION ?? "Hong Kong"
+): string {
   return [
+    `Preferred region: ${region}`,
     `Ideal role: ${profile.ideal_role}`,
     `Years of experience: ${profile.years_experience}`,
     `Technical skills: ${profile.technical_skills.join(", ")}`,

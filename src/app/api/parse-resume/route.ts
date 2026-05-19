@@ -91,9 +91,17 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (user) {
+      const { data: existingProfile } = await supabase
+        .from("user_profiles")
+        .select("username, email")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
       const { error: profileError } = await supabase.from("user_profiles").upsert(
         {
           user_id: user.id,
+          email: user.email ?? existingProfile?.email ?? null,
+          username: existingProfile?.username ?? null,
           technical_skills: profile.technical_skills,
           soft_skills: profile.soft_skills,
           years_experience: profile.years_experience,

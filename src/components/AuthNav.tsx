@@ -8,21 +8,39 @@ import { Button } from "@/components/ui/button";
 
 export function AuthNav() {
   const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
+  const [displayLabel, setDisplayLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
 
-    supabase.auth.getUser().then(({ data }) => {
-      setEmail(data.user?.email ?? null);
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
+      if (!user) {
+        setDisplayLabel(null);
+        setLoading(false);
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("user_profiles")
+        .select("username")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      setDisplayLabel(
+        profile?.username ? `@${profile.username}` : user.email ?? null
+      );
       setLoading(false);
-    });
+    };
+
+    loadUser();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null);
+    } = supabase.auth.onAuthStateChange(() => {
+      loadUser();
     });
 
     return () => subscription.unsubscribe();
@@ -31,7 +49,7 @@ export function AuthNav() {
   const signOut = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    setEmail(null);
+    setDisplayLabel(null);
     router.push("/");
     router.refresh();
   };
@@ -44,11 +62,11 @@ export function AuthNav() {
     );
   }
 
-  if (email) {
+  if (displayLabel) {
     return (
       <div className="flex items-center gap-2">
         <span className="hidden max-w-[140px] truncate text-sm text-muted-foreground md:inline">
-          {email}
+          {displayLabel}
         </span>
         <Button variant="ghost" size="sm" onClick={signOut}>
           Sign out

@@ -6,7 +6,10 @@ import {
   embedText,
   profileToEmbeddingText,
 } from "@/lib/nvidia";
+import { MATCH_LIMIT, MATCH_THRESHOLD } from "@/lib/matching-config";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
+
+export type MatchStatus = "saved" | "dismissed" | "applied";
 
 export async function getDashboardContext(): Promise<{
   isAuthenticated: boolean;
@@ -42,7 +45,7 @@ export async function getUserProfile(): Promise<{
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "technical_skills, soft_skills, years_experience, ideal_role"
+      "technical_skills, soft_skills, years_experience, ideal_role, username"
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -65,9 +68,65 @@ export async function getUserProfile(): Promise<{
   };
 }
 
+export async function getJobsByMatchStatus(
+  status: MatchStatus
+): Promise<{ jobs: MatchedJob[]; error?: string }> {
+  const supabaseAuth = await createClient();
+  const {
+    data: { user },
+  } = await supabaseAuth.auth.getUser();
+
+  if (!user) {
+    return { jobs: [], error: "Sign in required" };
+  }
+
+  const { data, error } = await supabaseAuth
+    .from("matches")
+    .select(
+      "score, jobs(id, source, title, company, url, description)"
+    )
+    .eq("user_id", user.id)
+    .eq("status", status)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { jobs: [], error: error.message };
+  }
+
+  const jobs: MatchedJob[] = [];
+
+  for (const row of data ?? []) {
+    const raw = row.jobs;
+    const job = (Array.isArray(raw) ? raw[0] : raw) as {
+      id: string;
+      source: string;
+      title: string;
+      company: string;
+      url: string;
+      description?: string;
+    } | null;
+
+    if (!job?.id) continue;
+
+    const score = Number(row.score) || 0;
+    jobs.push({
+      id: job.id,
+      source: job.source,
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      description: job.description,
+      similarity: score,
+      match_percent: Math.round(score * 100),
+    });
+  }
+
+  return { jobs };
+}
+
 export async function matchJobsForProfile(
   profile?: ParsedResume,
-  limit = 20
+  limit = MATCH_LIMIT
 ): Promise<{ jobs: MatchedJob[]; error?: string }> {
   try {
     const supabaseAuth = await createClient();
@@ -91,7 +150,7 @@ export async function matchJobsForProfile(
     const supabase = createServiceClient();
     const { data, error } = await supabase.rpc("match_jobs", {
       query_embedding: queryEmbedding,
-      match_threshold: 0.75,
+      match_threshold: MATCH_THRESHOLD,
       match_count: limit,
       p_user_id: user?.id ?? null,
     });
