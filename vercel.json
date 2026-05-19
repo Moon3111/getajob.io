@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "src/app/api/parse-resume/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/ingest-jobs/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/cron/fetch-jobs/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

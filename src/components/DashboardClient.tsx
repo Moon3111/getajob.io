@@ -1,0 +1,147 @@
+"use client";
+
+import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
+import { Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { matchJobsForProfile } from "@/app/actions/match-jobs";
+import { JobCard } from "@/components/JobCard";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import type { MatchedJob, ParsedResume } from "@/lib/types";
+
+interface DashboardClientProps {
+  initialProfile: ParsedResume | null;
+}
+
+export function DashboardClient({ initialProfile }: DashboardClientProps) {
+  const [profile] = useState<ParsedResume | null>(initialProfile);
+  const [jobs, setJobs] = useState<MatchedJob[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const [refining, setRefining] = useState(false);
+
+  const loadMatches = () => {
+    startTransition(async () => {
+      setError(null);
+      const { jobs: matched, error: matchError } = await matchJobsForProfile();
+      if (matchError) setError(matchError);
+      setJobs(matched);
+    });
+  };
+
+  useEffect(() => {
+    if (profile) loadMatches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleDismiss = (jobId: string) => {
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
+  };
+
+  const refineProfile = async () => {
+    setRefining(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/refine-profile", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Refine failed");
+      loadMatches();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Refine failed");
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  if (!profile) {
+    return (
+      <div className="mx-auto max-w-lg text-center">
+        <h1 className="text-2xl font-bold">Your job matches</h1>
+        <p className="mt-4 text-muted-foreground">
+          <Link href="/auth/login" className="text-primary hover:underline">
+            Sign in
+          </Link>{" "}
+          and upload a resume to see AI-matched roles.
+        </p>
+        <Button className="mt-6" asChild>
+          <Link href="/#upload">Upload resume</Link>
+        </Button>
+        </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Your job matches</h1>
+          <p className="mt-1 text-muted-foreground">
+            Targeting:{" "}
+            <span className="font-medium text-foreground">
+              {profile.ideal_role}
+            </span>
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={refining}
+            onClick={refineProfile}
+          >
+            {refining ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <Sparkles />
+            )}
+            Refine from saves
+          </Button>
+          <Button variant="outline" disabled={isPending} onClick={loadMatches}>
+            {isPending ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <RefreshCw />
+            )}
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Badge variant="secondary">
+          {profile.years_experience}+ years experience
+        </Badge>
+        {profile.technical_skills.slice(0, 6).map((skill) => (
+          <Badge key={skill} variant="outline">
+            {skill}
+          </Badge>
+        ))}
+      </div>
+
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {isPending && jobs.length === 0 ? (
+        <div className="flex items-center justify-center py-20 text-muted-foreground">
+          <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+          Finding your best matches…
+        </div>
+      ) : jobs.length === 0 && !error ? (
+        <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+          <p>No matching jobs yet.</p>
+          <p className="mt-2 text-sm">
+            Run the Apify cron or ingest sample jobs.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-6 md:grid-cols-2">
+          {jobs.map((job) => (
+            <JobCard key={job.id} job={job} onDismiss={handleDismiss} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

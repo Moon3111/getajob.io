@@ -1,0 +1,16 @@
+[
+  {
+    "title": "Full Stack Developer",
+    "company": "Tech Startup",
+    "description": "React, Next.js, Node.js, PostgreSQL. Remote-friendly. 2-4 years experience building SaaS products.",
+    "source": "jobsdb",
+    "url": "https://example.com/jobs/fullstack"
+  },
+  {
+    "title": "Machine Learning Engineer",
+    "company": "AI Labs",
+    "description": "Python, PyTorch, LLM fine-tuning, vector databases. Experience with RAG pipelines preferred.",
+    "source": "linkedin",
+    "url": "https://example.com/jobs/ml"
+  }
+]
