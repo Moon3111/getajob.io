@@ -130,6 +130,9 @@ export function ResumeUpload() {
 
       if (!data.saved) {
         setAuthHint(true);
+        router.push("/auth/signup?next=/");
+        router.refresh();
+        return;
       }
 
       router.push("/dashboard?fromUpload=1");

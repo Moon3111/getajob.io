@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Briefcase } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AuthNav } from "@/components/AuthNav";
 
 export function Navbar() {
   return (
@@ -22,9 +23,7 @@ export function Navbar() {
           <Button variant="ghost" asChild>
             <Link href="/dashboard">Dashboard</Link>
           </Button>
-          <Button variant="ghost" asChild>
-            <Link href="/auth/login">Sign in</Link>
-          </Button>
+          <AuthNav />
           <Button asChild>
             <Link href="/#upload">Get matched</Link>
           </Button>

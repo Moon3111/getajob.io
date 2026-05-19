@@ -1,16 +1,21 @@
 import { MAX_RESUME_CHARS_FOR_NIM } from "@/lib/upload-limits";
 
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
-const CHAT_MODEL = "meta/llama3-70b-instruct";
+/** Llama 3 70B was retired; catalog uses 3.1 — https://build.nvidia.com/meta/llama-3_1-70b-instruct */
+const DEFAULT_CHAT_MODEL = "meta/llama-3.1-70b-instruct";
 const EMBED_MODEL = "nvidia/nv-embedqa-e5-v5";
 const MAX_EMBED_CHARS = 8_000;
 
 function getApiKey(): string {
-  const key = process.env.NVIDIA_API_KEY;
+  const key = process.env.NVIDIA_API_KEY?.trim();
   if (!key) {
     throw new Error("NVIDIA_API_KEY is not configured");
   }
   return key;
+}
+
+function getChatModel(): string {
+  return process.env.NVIDIA_NIM_CHAT_MODEL?.trim() || DEFAULT_CHAT_MODEL;
 }
 
 export class NimParseError extends Error {
@@ -41,7 +46,7 @@ Required keys:
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: CHAT_MODEL,
+      model: getChatModel(),
       messages: [
         { role: "system", content: systemPrompt },
         {
@@ -135,7 +140,7 @@ export async function extractKeywordsFromJobs(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: CHAT_MODEL,
+      model: getChatModel(),
       messages: [
         {
           role: "system",

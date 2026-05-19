@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { DashboardClient } from "@/components/DashboardClient";
 import { Button } from "@/components/ui/button";
-import { getUserProfile } from "@/app/actions/match-jobs";
+import { getDashboardContext } from "@/app/actions/match-jobs";
 
 interface DashboardPageProps {
   searchParams: { fromUpload?: string };
@@ -12,8 +12,10 @@ interface DashboardPageProps {
 export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
-  const { profile } = await getUserProfile();
-  const showMatchingPipeline = searchParams.fromUpload === "1";
+  const { isAuthenticated, profile, error: profileError } =
+    await getDashboardContext();
+  const showMatchingPipeline =
+    searchParams.fromUpload === "1" && Boolean(profile);
 
   return (
     <main className="min-h-screen">
@@ -27,6 +29,9 @@ export default async function DashboardPage({
         </Button>
         <DashboardClient
           initialProfile={profile}
+          isAuthenticated={isAuthenticated}
+          profileError={profileError}
+          fromUpload={searchParams.fromUpload === "1"}
           showMatchingPipeline={showMatchingPipeline}
         />
       </div>

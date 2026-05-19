@@ -13,11 +13,17 @@ import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
 
 interface DashboardClientProps {
   initialProfile: ParsedResume | null;
+  isAuthenticated: boolean;
+  profileError?: string;
+  fromUpload?: boolean;
   showMatchingPipeline?: boolean;
 }
 
 export function DashboardClient({
   initialProfile,
+  isAuthenticated,
+  profileError,
+  fromUpload = false,
   showMatchingPipeline = false,
 }: DashboardClientProps) {
   const [profile] = useState<ParsedResume | null>(initialProfile);
@@ -81,15 +87,44 @@ export function DashboardClient({
     return (
       <div className="mx-auto max-w-lg text-center">
         <h1 className="text-2xl font-bold">Your job matches</h1>
-        <p className="mt-4 text-muted-foreground">
-          <Link href="/auth/login" className="text-primary hover:underline">
-            Sign in
-          </Link>{" "}
-          and upload a resume to see AI-matched roles.
-        </p>
-        <Button className="mt-6" asChild>
-          <Link href="/#upload">Upload resume</Link>
-        </Button>
+
+        {!isAuthenticated ? (
+          <p className="mt-4 text-muted-foreground">
+            {fromUpload ? (
+              <>
+                Your resume was parsed, but it was not saved because you are not
+                signed in. Create an account, then upload again while logged in.
+              </>
+            ) : (
+              <>Sign in first, then upload a resume to see AI-matched roles.</>
+            )}
+          </p>
+        ) : (
+          <p className="mt-4 text-muted-foreground">
+            You are signed in, but we do not have a saved profile yet. Upload
+            your resume from the home page to generate matches.
+          </p>
+        )}
+
+        {profileError && (
+          <p className="mt-3 text-sm text-destructive">{profileError}</p>
+        )}
+
+        <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+          {!isAuthenticated ? (
+            <>
+              <Button asChild>
+                <Link href="/auth/signup">Sign up</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/auth/login">Sign in</Link>
+              </Button>
+            </>
+          ) : null}
+          <Button variant={isAuthenticated ? "default" : "outline"} asChild>
+            <Link href="/#upload">Upload resume</Link>
+          </Button>
+        </div>
       </div>
     );
   }

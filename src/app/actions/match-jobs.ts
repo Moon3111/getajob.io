@@ -8,6 +8,24 @@ import {
 } from "@/lib/nvidia";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
 
+export async function getDashboardContext(): Promise<{
+  isAuthenticated: boolean;
+  profile: ParsedResume | null;
+  error?: string;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { isAuthenticated: false, profile: null };
+  }
+
+  const { profile, error } = await getUserProfile();
+  return { isAuthenticated: true, profile, error };
+}
+
 export async function getUserProfile(): Promise<{
   profile: ParsedResume | null;
   error?: string;

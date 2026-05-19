@@ -38,6 +38,11 @@ cp .env.example .env.local
    - `supabase/migrations/001_initial_schema.sql`
    - `supabase/migrations/002_auth_hnsw_match_jobs.sql`
 5. Supabase → **Authentication → Providers** → enable **Email**.
+6. **Authentication → URL Configuration** (required for sign-in):
+   - **Site URL:** `http://localhost:3000`
+   - **Redirect URLs:** add `http://localhost:3000/**`
+7. For easiest local sign-in: **Email** provider → turn **off** “Confirm email”.
+8. Run `supabase/migrations/003_profile_upsert_policy.sql` if profile save fails after login.
 
 ---
 

@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Briefcase, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { formatAuthError } from "@/lib/auth-messages";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,31 +19,53 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function SignupPage() {
-  const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const next = searchParams.get("next") ?? "/dashboard";
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`;
 
-    if (authError) {
-      setError(authError.message);
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          emailRedirectTo: redirectTo,
+        },
+      });
+
+      if (authError) {
+        setError(formatAuthError(authError.message));
+        setLoading(false);
+        return;
+      }
+
+      if (data.session) {
+        window.location.href = next.startsWith("/") ? next : "/dashboard";
+        return;
+      }
+
+      setSuccess(
+        "Account created. Check your email for a confirmation link, then sign in. For local dev, you can disable “Confirm email” in Supabase → Authentication → Email."
+      );
       setLoading(false);
-      return;
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not connect to Supabase"
+      );
+      setLoading(false);
     }
-
-    router.push("/dashboard");
-    router.refresh();
   };
 
   return (
@@ -82,8 +105,16 @@ export default function SignupPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Minimum 6 characters
+              </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
+            {success && (
+              <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                {success}
+              </p>
+            )}
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button type="submit" className="w-full" disabled={loading}>
@@ -101,4 +132,3 @@ export default function SignupPage() {
     </main>
   );
 }
-
