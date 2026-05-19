@@ -5,6 +5,13 @@ export interface ParsedResume {
   ideal_role: string;
 }
 
+export interface AIAnalysis {
+  relevance_rating: "EXCELLENT" | "GOOD" | "FAIR" | "MISMATCH";
+  fit_percentage: number; // 0-100
+  analysis_summary: string;
+  missing_keywords: string[];
+}
+
 export interface JobRecord {
   id: string;
   source: string;
@@ -18,6 +25,7 @@ export interface JobRecord {
 export interface MatchedJob extends JobRecord {
   similarity: number;
   match_percent: number;
+  ai_analysis?: AIAnalysis;
 }
 
 export interface ScraperJobInput {
@@ -32,4 +40,17 @@ export interface IngestResult {
   inserted: number;
   duplicates: number;
   errors: string[];
+}
+
+export interface PaginationMeta {
+  currentPage: number;
+  totalPages: number;
+  totalResults: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export interface PaginatedJobsResponse {
+  jobs: MatchedJob[];
+  pagination: PaginationMeta;
 }

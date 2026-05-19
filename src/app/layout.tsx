@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "getajob.io ??AI job matching",
+  title: "getajob.io — AI job matching",
   description:
     "Upload your resume, get semantically matched to live job listings.",
 };

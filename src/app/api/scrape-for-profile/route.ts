@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeAndIngestForKeywords } from "@/lib/scraper/run";
 import { createClient } from "@/lib/supabase/server";
+import { updateUserProfile } from "@/lib/supabase/profile-update";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,12 +22,14 @@ export async function POST(request: NextRequest) {
     }
 
     let keywords = "";
+    let quick = true;
     try {
       const body = await request.json();
       keywords =
         typeof body.keywords === "string" ? body.keywords.trim() : "";
+      if (body.quick === false) quick = false;
     } catch {
-      /* empty body ok */
+      /* empty body */
     }
 
     if (!keywords) {
@@ -48,26 +52,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await supabase
-      .from("user_profiles")
-      .update({
-        job_search_keywords: keywords,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", user.id);
+    await updateUserProfile(supabase, user.id, {
+      job_search_keywords: keywords,
+    });
 
-    const result = await scrapeAndIngestForKeywords(keywords);
+    const result = await scrapeAndIngestForKeywords(keywords, { quick });
 
-    await supabase
-      .from("user_profiles")
-      .update({ last_scrape_at: new Date().toISOString() })
-      .eq("user_id", user.id);
+    await updateUserProfile(supabase, user.id, {
+      last_scrape_at: new Date().toISOString(),
+    });
 
     return NextResponse.json(result);
   } catch (err) {
     console.error("scrape-for-profile:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Scrape failed" },
+      {
+        error: err instanceof Error ? err.message : "Scrape failed",
+        inserted: 0,
+        duplicates: 0,
+        scraped: 0,
+        warnings: [],
+      },
       { status: 500 }
     );
   }

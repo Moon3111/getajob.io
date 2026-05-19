@@ -100,27 +100,40 @@ export async function POST(request: NextRequest) {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      const { error: profileError } = await supabase.from("user_profiles").upsert(
-        {
-          user_id: user.id,
-          email: user.email ?? existingProfile?.email ?? null,
-          username: existingProfile?.username ?? null,
-          technical_skills: profile.technical_skills,
-          soft_skills: profile.soft_skills,
-          years_experience: profile.years_experience,
-          ideal_role: profile.ideal_role,
-          skills: {
-            technical: profile.technical_skills,
-            soft: profile.soft_skills,
-          },
-          intent: profile.ideal_role,
-          job_search_keywords:
-            keywords || profile.ideal_role || null,
-          resume_text: trimmed.slice(0, 50_000),
-          updated_at: new Date().toISOString(),
+      const basePayload = {
+        user_id: user.id,
+        email: user.email ?? existingProfile?.email ?? null,
+        username: existingProfile?.username ?? null,
+        technical_skills: profile.technical_skills,
+        soft_skills: profile.soft_skills,
+        years_experience: profile.years_experience,
+        ideal_role: profile.ideal_role,
+        skills: {
+          technical: profile.technical_skills,
+          soft: profile.soft_skills,
         },
-        { onConflict: "user_id" }
-      );
+        intent: profile.ideal_role,
+        resume_text: trimmed.slice(0, 50_000),
+        updated_at: new Date().toISOString(),
+      };
+
+      let profileError = (
+        await supabase.from("user_profiles").upsert(
+          {
+            ...basePayload,
+            job_search_keywords: keywords || profile.ideal_role || null,
+          },
+          { onConflict: "user_id" }
+        )
+      ).error;
+
+      if (profileError?.message?.includes("job_search_keywords")) {
+        profileError = (
+          await supabase.from("user_profiles").upsert(basePayload, {
+            onConflict: "user_id",
+          })
+        ).error;
+      }
 
       if (profileError) {
         console.error("profile upsert:", profileError);

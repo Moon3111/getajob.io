@@ -9,11 +9,14 @@ import {
 } from "@/app/actions/match-jobs";
 import { scrapeAndMatchWithKeywords } from "@/app/actions/scrape-match";
 import { seedHongKongJobs } from "@/app/actions/seed-jobs";
+import { saveManualKeywords } from "@/app/actions/save-manual-keywords";
 import { Input } from "@/components/ui/input";
 import { JobCard } from "@/components/JobCard";
 import { UploadProgressChecklist } from "@/components/UploadProgressChecklist";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { PaginatedJobFeed } from "@/components/PaginatedJobFeed";
+import { ManualKeywordsInput } from "@/components/ManualKeywordsInput";
 import { DEFAULT_REGION } from "@/lib/matching-config";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
 import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
@@ -160,7 +163,7 @@ export function DashboardClient({
     setError(null);
     setScrapeFeedback(null);
     try {
-      const result = await scrapeAndMatchWithKeywords(kw);
+      const result = await scrapeAndMatchWithKeywords(kw, { quick: false });
       if (!result.ok) {
         setError(result.error ?? "Scrape failed");
         return;
@@ -424,17 +427,43 @@ export function DashboardClient({
         </div>
       ) : (
         !matchingActive && (
-          <div className="grid gap-6 md:grid-cols-2">
-            {activeJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                mode={tab === "matches" ? "feed" : tab}
-                onDismiss={tab === "matches" ? handleDismiss : undefined}
-                onStatusChange={() => loadSavedAndApplied()}
+          <>
+            {/* Manual Keywords Input - only show on matches tab */}
+            {tab === "matches" && (
+              <div className="mt-6">
+                <ManualKeywordsInput
+                  onSave={async (keywords: string[]) => {
+                    const result = await saveManualKeywords(keywords);
+                    if (!result.ok) {
+                      throw new Error(result.error || "Failed to save keywords");
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Jobs Display */}
+            {tab === "matches" ? (
+              <PaginatedJobFeed
+                initialPage={1}
+                onJobDismiss={handleDismiss}
+                onJobSave={() => loadSavedAndApplied()}
+                onJobApply={() => loadSavedAndApplied()}
               />
-            ))}
-          </div>
+            ) : (
+              <div className="grid gap-6 md:grid-cols-2">
+                {activeJobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    mode={tab}
+                    onDismiss={undefined}
+                    onStatusChange={() => loadSavedAndApplied()}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )
       )}
     </div>

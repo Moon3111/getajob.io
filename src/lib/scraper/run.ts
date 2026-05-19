@@ -10,6 +10,13 @@ export interface ScrapeForProfileResult extends IngestResult {
   warnings: string[];
 }
 
+export interface ScrapeOptions {
+  /** Fewer sources, shorter timeout — use during resume upload */
+  quick?: boolean;
+  maxPerSource?: number;
+  maxTotal?: number;
+}
+
 function dedupeJobs(jobs: ScraperJobInput[]): ScraperJobInput[] {
   const seen = new Set<string>();
   const out: ScraperJobInput[] = [];
@@ -24,11 +31,10 @@ function dedupeJobs(jobs: ScraperJobInput[]): ScraperJobInput[] {
 
 /**
  * Scrape HK job boards for keywords, embed with NVIDIA, store in Supabase.
- * Uses Python Playwright when available; always includes gov JSON feed.
  */
 export async function scrapeAndIngestForKeywords(
   keywords: string,
-  options?: { maxPerSource?: number }
+  options?: ScrapeOptions
 ): Promise<ScrapeForProfileResult> {
   const trimmed = keywords.trim();
   if (!trimmed) {
@@ -43,11 +49,29 @@ export async function scrapeAndIngestForKeywords(
     };
   }
 
-  const maxPerSource = options?.maxPerSource ?? Number(process.env.SCRAPER_MAX_PER_SOURCE ?? 5);
+  const quick = options?.quick ?? false;
+  const maxPerSource =
+    options?.maxPerSource ??
+    (quick ? 2 : Number(process.env.SCRAPER_MAX_PER_SOURCE ?? 5));
+  const maxTotal =
+    options?.maxTotal ?? (quick ? 8 : Number(process.env.SCRAPER_MAX_TOTAL ?? 30));
+  const pythonTimeoutMs = quick ? 70_000 : 240_000;
+  const uploadSources =
+    process.env.SCRAPER_UPLOAD_SOURCES ?? "jobs_gov,indeed,jobsdb";
+  const fullSources = process.env.SCRAPER_SOURCES ?? uploadSources;
+
   const warnings: string[] = [];
   let collected: ScraperJobInput[] = [];
 
-  collected.push(...(await fetchGovVacancies(trimmed, maxPerSource)));
+  try {
+    collected.push(
+      ...(await fetchGovVacancies(trimmed, quick ? 3 : maxPerSource))
+    );
+  } catch (err) {
+    warnings.push(
+      `Government feed: ${err instanceof Error ? err.message : "unavailable"}`
+    );
+  }
 
   const usePython =
     process.env.SCRAPER_ENABLED !== "false" && isPythonScraperAvailable();
@@ -56,22 +80,27 @@ export async function scrapeAndIngestForKeywords(
     const { jobs, errors } = await runPythonScraper({
       keywords: trimmed,
       maxPerSource,
+      sources: quick ? uploadSources : fullSources,
+      timeoutMs: pythonTimeoutMs,
     });
     collected.push(...jobs);
-    warnings.push(...errors);
-  } else if (process.env.NODE_ENV === "production") {
+    if (errors.length) warnings.push(...errors);
+  } else if (!quick) {
     warnings.push(
-      "Live browser scraping runs on your machine or a worker with Python. Government jobs were still loaded."
+      "Python scraper not found locally. Install scraper/.venv for Indeed and JobsDB."
     );
   }
 
-  collected = dedupeJobs(collected);
+  collected = dedupeJobs(collected).slice(0, maxTotal);
 
   if (collected.length === 0) {
     return {
       inserted: 0,
       duplicates: 0,
-      errors: warnings.length ? warnings : ["No jobs found for these keywords"],
+      errors:
+        warnings.length > 0
+          ? warnings
+          : ["No jobs found for these keywords. Try different keywords."],
       scraped: 0,
       keywords: trimmed,
       usedPython: usePython,

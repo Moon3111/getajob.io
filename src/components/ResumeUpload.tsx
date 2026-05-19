@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FileText, Search, Upload, X } from "lucide-react";
+import { scrapeAndMatchWithKeywords } from "@/app/actions/scrape-match";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,14 +24,6 @@ interface ParseResumeErrorBody {
   error?: string;
   code?: string;
   keywords?: string;
-}
-
-interface ScrapeResultBody {
-  inserted?: number;
-  duplicates?: number;
-  scraped?: number;
-  warnings?: string[];
-  error?: string;
 }
 
 export function ResumeUpload() {
@@ -103,7 +96,9 @@ export function ResumeUpload() {
 
     const searchKeywords = keywords.trim();
     if (!searchKeywords) {
-      setErrorMessage("Enter job search keywords (e.g. software engineer, fintech).");
+      setErrorMessage(
+        "Enter job search keywords (e.g. software engineer, fintech)."
+      );
       return;
     }
 
@@ -117,19 +112,34 @@ export function ResumeUpload() {
       formData.append("file", file);
       formData.append("keywords", searchKeywords);
 
-      const res = await fetch("/api/parse-resume", {
-        method: "POST",
-        body: formData,
-      });
+      let parseRes: Response;
+      try {
+        parseRes = await fetch("/api/parse-resume", {
+          method: "POST",
+          body: formData,
+        });
+      } catch {
+        failAtPhase(
+          "parsing",
+          "Could not reach the server. Is npm run dev running?"
+        );
+        return;
+      }
 
-      const data = (await res.json()) as ParseResumeErrorBody & {
+      let data: ParseResumeErrorBody & {
         saved?: boolean;
         profile?: { ideal_role?: string };
       };
+      try {
+        data = await parseRes.json();
+      } catch {
+        failAtPhase("parsing", "Invalid response from resume parser.");
+        return;
+      }
 
-      if (!res.ok) {
+      if (!parseRes.ok) {
         const phase: UploadPipelinePhase =
-          res.status === 502 ? "analyzing" : "parsing";
+          parseRes.status === 502 ? "analyzing" : "parsing";
         const msg =
           data.code === "invalid_json"
             ? `${data.error ?? "AI parsing failed"} (invalid_json)`
@@ -152,40 +162,48 @@ export function ResumeUpload() {
         searchKeywords || data.keywords || data.profile?.ideal_role || "";
 
       setActivePhase("scraping");
-      const scrapeRes = await fetch("/api/scrape-for-profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords: scrapeKeywords }),
+
+      const scrapeResult = await scrapeAndMatchWithKeywords(scrapeKeywords, {
+        quick: true,
       });
 
-      const scrapeData = (await scrapeRes.json()) as ScrapeResultBody;
-
-      if (!scrapeRes.ok) {
+      if (!scrapeResult.ok) {
         failAtPhase(
           "scraping",
-          scrapeData.error ?? "Job scraping failed. Try again from the dashboard."
+          scrapeResult.error ??
+            "Job scraping failed. Your profile was saved — use Scrape & match on the dashboard."
         );
         return;
       }
 
       setCompletedPhases(new Set(["parsing", "analyzing", "scraping"]));
       setActivePhase("matching");
-      await new Promise((r) => setTimeout(r, 600));
+
+      const inserted = scrapeResult.inserted ?? 0;
+      const matchCount = scrapeResult.matchCount ?? 0;
+
       setCompletedPhases(
         new Set(["parsing", "analyzing", "scraping", "matching"])
       );
       setActivePhase(null);
+      setProcessing(false);
 
-      const inserted = scrapeData.inserted ?? 0;
       const q = encodeURIComponent(scrapeKeywords);
+      const warn =
+        scrapeResult.warnings?.length && scrapeResult.warnings[0]
+          ? `&warn=${encodeURIComponent(scrapeResult.warnings[0])}`
+          : "";
       router.push(
-        `/dashboard?fromUpload=1&scraped=${inserted}&keywords=${q}`
+        `/dashboard?fromUpload=1&scraped=${inserted}&matches=${matchCount}&keywords=${q}${warn}`
       );
       router.refresh();
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed";
       failAtPhase(
-        activePhase ?? "parsing",
-        err instanceof Error ? err.message : "Upload failed"
+        activePhase ?? "scraping",
+        msg.includes("fetch")
+          ? "Connection lost during scraping (took too long). Your resume is saved — open the dashboard and click Scrape & match."
+          : msg
       );
     }
   };
@@ -215,8 +233,8 @@ export function ResumeUpload() {
           onChange={(e) => setKeywords(e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Used to scrape Indeed, JobsDB, jobs.gov.hk, agencies, and more — then
-          matched to your resume with AI.
+          Used to scrape Indeed, JobsDB, jobs.gov.hk, and more, then matched to
+          your resume with AI.
         </p>
       </div>
 

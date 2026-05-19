@@ -49,7 +49,13 @@ export async function POST() {
     );
   }
 
-  const keywords = await extractKeywordsFromJobs(descriptions as string[]);
+  let keywords: string[] = [];
+  try {
+    keywords = await extractKeywordsFromJobs(descriptions as string[]);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to extract keywords";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 
   const { data: existing } = await supabase
     .from("user_profiles")
@@ -70,7 +76,12 @@ export async function POST() {
     profileToEmbeddingText(profile) +
     (keywords.length ? `\nPreferred themes: ${keywords.join(", ")}` : "");
 
-  await embedText(embeddingText);
+  try {
+    await embedText(embeddingText);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to embed profile";
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 
   const { error: updateError } = await supabase.from("user_profiles").upsert(
     {

@@ -16,7 +16,7 @@ export function Hero() {
         </h1>
         <p className="mt-6 text-lg text-muted-foreground">
           We parse your skills with NVIDIA NIM, embed live job listings, and
-          surface roles that actually fit ??no endless scrolling.
+          surface roles that actually fit—no endless scrolling.
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Button size="lg" asChild>
@@ -37,7 +37,7 @@ export function Hero() {
             icon: Zap,
             title: "Parse",
             description:
-              "PDF or DOCX ??structured skills, experience, and ideal role via Llama 3 on NIM.",
+              "PDF or DOCX—structured skills, experience, and ideal role via Llama 3 on NIM.",
           },
           {
             icon: Target,
