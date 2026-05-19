@@ -1,6 +1,23 @@
-# Apify setup (Hong Kong job sources)
+# Job ingestion (Hong Kong)
 
-Live scraping uses [Apify](https://console.apify.com) actors. You do **not** need Apify for local testing — use **Load Hong Kong sample jobs** on the dashboard or `POST /api/ingest-jobs` with `scripts/seed-hk-jobs.json`.
+## Recommended: free Python scraper (no Apify token)
+
+See **[scraper/README.md](../scraper/README.md)** — Playwright scrapers for Indeed HK, JobsDB, Google Jobs, Bing Jobs (optional LinkedIn with cookie). Pushes to `/api/ingest-jobs`.
+
+```powershell
+cd scraper
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+playwright install chromium
+python run.py --sources indeed,jobsdb --push
+```
+
+---
+
+## Optional: Apify (paid)
+
+Live scraping can also use [Apify](https://console.apify.com) actors. You do **not** need Apify for local testing — use **Load Hong Kong sample jobs** on the dashboard or `POST /api/ingest-jobs` with `scripts/seed-hk-jobs.json`.
 
 ## 1. Create an Apify account
 
