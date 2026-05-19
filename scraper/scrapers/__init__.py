@@ -5,6 +5,7 @@ from scrapers.jobs_gov import scrape_jobs_gov
 from scrapers.talent_gov import scrape_talent_gov
 from scrapers.hk_platforms import (
     scrape_ambition,
+    scrape_ctgoodjobs,
     scrape_cpjobs,
     scrape_efinancial,
     scrape_glassdoor,
@@ -25,6 +26,7 @@ SCRAPERS = {
     # Professional & niche
     "glassdoor": scrape_glassdoor,
     "efinancialcareers": scrape_efinancial,
+    "ctgoodjobs": scrape_ctgoodjobs,
     "cpjobs": scrape_cpjobs,
     "hkslash": scrape_hkslash,
     # Recruitment agencies
@@ -38,6 +40,7 @@ SCRAPERS = {
 DEFAULT_SOURCE_LIST = [
     "indeed",
     "jobsdb",
+    "ctgoodjobs",
     "jobs_gov",
     "michael_page",
     "randstad",

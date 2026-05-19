@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractTextFromFile } from "@/lib/resume-parser";
 import { NimParseError, parseResumeWithNim } from "@/lib/nvidia";
+import { normalizeProfile } from "@/lib/profile/normalize";
+import { persistProfileEmbeddings } from "@/lib/profile/embeddings";
 import { createClient } from "@/lib/supabase/server";
 import {
   MAX_RESUME_FILE_BYTES,
   MIN_RESUME_TEXT_CHARS,
 } from "@/lib/upload-limits";
-import type { ParsedResume } from "@/lib/types";
 
 export const runtime = "nodejs";
-/** Pro/Enterprise only; Hobby still hard-caps at 10s */
 export const maxDuration = 60;
-
-function normalizeProfile(raw: ParsedResume): ParsedResume {
-  return {
-    technical_skills: Array.isArray(raw.technical_skills)
-      ? raw.technical_skills
-      : [],
-    soft_skills: Array.isArray(raw.soft_skills) ? raw.soft_skills : [],
-    years_experience: Number(raw.years_experience) || 0,
-    ideal_role: String(raw.ideal_role ?? "Software Engineer"),
-  };
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -70,7 +59,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let rawProfile: ParsedResume;
+    let rawProfile;
     try {
       rawProfile = await parseResumeWithNim(trimmed);
     } catch (nimErr) {
@@ -100,7 +89,7 @@ export async function POST(request: NextRequest) {
         .eq("user_id", user.id)
         .maybeSingle();
 
-      const basePayload = {
+      const basePayload: Record<string, unknown> = {
         user_id: user.id,
         email: user.email ?? existingProfile?.email ?? null,
         username: existingProfile?.username ?? null,
@@ -108,6 +97,10 @@ export async function POST(request: NextRequest) {
         soft_skills: profile.soft_skills,
         years_experience: profile.years_experience,
         ideal_role: profile.ideal_role,
+        career_level: profile.career_level,
+        target_seniority: profile.target_seniority,
+        experience_summary: profile.experience_summary || null,
+        graduation_year: profile.graduation_year ?? null,
         skills: {
           technical: profile.technical_skills,
           soft: profile.soft_skills,
@@ -135,12 +128,33 @@ export async function POST(request: NextRequest) {
         ).error;
       }
 
+      if (profileError?.message?.includes("career_level")) {
+        const {
+          career_level: _c,
+          target_seniority: _t,
+          experience_summary: _e,
+          graduation_year: _g,
+          ...legacy
+        } = basePayload;
+        profileError = (
+          await supabase.from("user_profiles").upsert(legacy, {
+            onConflict: "user_id",
+          })
+        ).error;
+      }
+
       if (profileError) {
         console.error("profile upsert:", profileError);
         return NextResponse.json(
           { error: "Failed to save profile" },
           { status: 500 }
         );
+      }
+
+      try {
+        await persistProfileEmbeddings(supabase, user.id, profile);
+      } catch (embedErr) {
+        console.warn("Profile embedding skipped:", embedErr);
       }
     }
 

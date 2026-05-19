@@ -16,6 +16,7 @@ interface PaginatedJobFeedProps {
   onJobDismiss?: (jobId: string) => void;
   onJobSave?: (jobId: string) => void;
   onJobApply?: (jobId: string) => void;
+  onResultsChange?: (total: number) => void;
 }
 
 export function PaginatedJobFeed({
@@ -23,6 +24,7 @@ export function PaginatedJobFeed({
   onJobDismiss,
   onJobSave,
   onJobApply,
+  onResultsChange,
 }: PaginatedJobFeedProps) {
   const [jobs, setJobs] = useState<MatchedJob[]>([]);
   const [currentPage, setCurrentPage] = useState(initialPage);
@@ -59,6 +61,7 @@ export function PaginatedJobFeed({
     setJobs(data.jobs);
     setTotalPages(data.pagination.totalPages);
     setTotalResults(data.pagination.totalResults);
+    onResultsChange?.(data.pagination.totalResults);
     setCurrentPage(page);
     setIsLoading(false);
 
@@ -67,12 +70,17 @@ export function PaginatedJobFeed({
     if (feedElement) {
       feedElement.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, []);
+  }, [onResultsChange]);
 
-  // Load initial page
   useEffect(() => {
     loadPage(initialPage);
   }, [initialPage, loadPage]);
+
+  useEffect(() => {
+    const onRefresh = () => loadPage(currentPage);
+    window.addEventListener("job-feed-refresh", onRefresh);
+    return () => window.removeEventListener("job-feed-refresh", onRefresh);
+  }, [currentPage, loadPage]);
 
   const handlePageChange = (page: number) => {
     loadPage(page);

@@ -1,9 +1,17 @@
 "use server";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { embedText } from "@/lib/nvidia";
+import { embedQuery, profileToEmbeddingText } from "@/lib/nvidia";
+import { formatVectorForPostgres } from "@/lib/pgvector";
 import { performDeepVerification } from "@/lib/nim-verification";
 import { MATCH_THRESHOLD } from "@/lib/matching-config";
+import {
+  applyVerificationFilter,
+  filterJobsBySeniority,
+  mergeAiIntoMatchPercent,
+} from "@/lib/matching/filter-jobs";
+import { normalizeSeniorityLevel } from "@/lib/jobs/seniority";
+import { normalizeProfile } from "@/lib/profile/normalize";
 import type { MatchedJob, PaginatedJobsResponse, ParsedResume } from "@/lib/types";
 
 const MAX_TOTAL_RESULTS = 30;
@@ -19,6 +27,20 @@ interface HybridMatchRow {
   distance: number;
   match_score: number;
   combined_score?: number;
+  seniority_level?: string | null;
+}
+
+interface ProfileRow {
+  technical_skills: string[] | null;
+  soft_skills: string[] | null;
+  years_experience: number | null;
+  ideal_role: string | null;
+  manual_top_keywords?: string[] | null;
+  career_level?: string | null;
+  target_seniority?: string | null;
+  experience_summary?: string | null;
+  graduation_year?: number | null;
+  cv_embedding?: string | null;
 }
 
 export async function getHybridMatchedJobs(
@@ -29,7 +51,6 @@ export async function getHybridMatchedJobs(
   error?: string;
 }> {
   try {
-    // Authenticate user
     const supabase = await createClient();
     const {
       data: { user },
@@ -39,169 +60,90 @@ export async function getHybridMatchedJobs(
       return { error: "Unauthorized" };
     }
 
-    // Validate pagination params
     const validPage = Math.max(1, Math.min(page, MAX_PAGES));
     const validLimit = Math.min(Math.max(1, limit), 10);
     const offset = (validPage - 1) * validLimit;
 
-    // Load user profile with both AI keywords and manual keywords
-    // Note: manual_top_keywords might not exist if migration hasn't been applied
-    let profile: any = null;
-    
-    // Try to load with the new manual_top_keywords column
-    const { data: profileWithKeywords, error: errorWithKeywords } = await supabase
-      .from("user_profiles")
-      .select("technical_skills, soft_skills, years_experience, ideal_role, manual_top_keywords")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    // If the column doesn't exist, try without it
-    if (errorWithKeywords?.message?.includes("manual_top_keywords")) {
-      const { data: profileWithoutKeywords, error: errorWithoutKeywords } = await supabase
-        .from("user_profiles")
-        .select("technical_skills, soft_skills, years_experience, ideal_role")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      
-      if (errorWithoutKeywords) {
-        return { error: `Profile load failed: ${errorWithoutKeywords.message}` };
-      }
-      
-      profile = profileWithoutKeywords ? { ...profileWithoutKeywords, manual_top_keywords: [] } : null;
-    } else if (errorWithKeywords) {
-      return { error: `Profile load failed: ${errorWithKeywords.message}` };
-    } else {
-      profile = profileWithKeywords;
-    }
-
+    const profile = await loadProfile(supabase, user.id);
     if (!profile) {
       return { error: "No profile found. Upload a resume first." };
     }
 
-    // Prepare keyword arrays
-    const cvKeywords = profile.technical_skills || [];
-    const manualKeywords = (profile.manual_top_keywords || []).slice(0, 5);
-
-    if (cvKeywords.length === 0 && manualKeywords.length === 0) {
-      return {
-        data: {
-          jobs: [],
-          pagination: {
-            currentPage: validPage,
-            totalPages: 0,
-            totalResults: 0,
-            hasNextPage: false,
-            hasPrevPage: false,
-          },
-        },
-      };
-    }
-
-    // Embed keywords using NVIDIA
-    let cvEmbeddings: number[][] = [];
-    let manualEmbeddings: number[][] = [];
-
-    try {
-      // Embed CV keywords
-      if (cvKeywords.length > 0) {
-        const cvText = cvKeywords.join(", ");
-        const cvEmbed = await embedText(cvText);
-        cvEmbeddings = [cvEmbed];
-      }
-
-      // Embed manual keywords
-      if (manualKeywords.length > 0) {
-        const manualText = manualKeywords.join(", ");
-        const manualEmbed = await embedText(manualText);
-        manualEmbeddings = [manualEmbed];
-      }
-    } catch (embedErr) {
-      const message = embedErr instanceof Error ? embedErr.message : "Embedding failed";
-      return { error: `Failed to embed keywords: ${message}` };
-    }
-
-    // Call hybrid matching RPC
-    const serviceClient = createServiceClient();
-
-    let results: HybridMatchRow[] | null = null;
-    let rpcError: any = null;
-
-    // Try the new hybrid function first
-    const hybridResult = await serviceClient.rpc("match_jobs_hybrid", {
-      cv_keywords_embeddings: cvEmbeddings.length > 0 ? cvEmbeddings : [Array(1024).fill(0)],
-      manual_keywords_embeddings: manualEmbeddings.length > 0 ? manualEmbeddings : [],
-      match_threshold: MATCH_THRESHOLD,
-      limit_count: MAX_TOTAL_RESULTS,
-      offset_count: 0,
-      p_user_id: user.id,
+    const parsed = normalizeProfile({
+      technical_skills: profile.technical_skills ?? [],
+      soft_skills: profile.soft_skills ?? [],
+      years_experience: Number(profile.years_experience) || 0,
+      ideal_role: profile.ideal_role ?? "Software Engineer",
+      career_level: profile.career_level
+        ? normalizeSeniorityLevel(profile.career_level)
+        : undefined,
+      target_seniority: profile.target_seniority
+        ? normalizeSeniorityLevel(profile.target_seniority)
+        : undefined,
+      experience_summary: profile.experience_summary ?? undefined,
+      graduation_year: profile.graduation_year,
     });
 
-    // Check if the function doesn't exist and fall back
-    if (
-      hybridResult.error?.message?.includes("Could not find the function") ||
-      hybridResult.error?.message?.includes("match_jobs_hybrid")
-    ) {
-      console.log("Hybrid function not found, falling back to basic matching...");
+    const manualKeywords = (profile.manual_top_keywords ?? []).slice(0, 5);
+    const careerLevel = normalizeSeniorityLevel(
+      parsed.target_seniority ?? parsed.career_level
+    );
 
-      // Use CV embeddings only with the original match_jobs function
-      if (cvEmbeddings.length > 0) {
-        const fallbackResult = await serviceClient.rpc("match_jobs", {
-          query_embedding: cvEmbeddings[0],
-          match_threshold: MATCH_THRESHOLD,
-          match_count: MAX_TOTAL_RESULTS,
-          p_user_id: user.id,
-        });
+    let cvEmbedding: number[] | null = null;
+    let manualEmbedding: number[] | null = null;
 
-        results = fallbackResult.data as any;
-        rpcError = fallbackResult.error;
-      } else {
-        rpcError = new Error("No keywords to match");
+    try {
+      if (profile.cv_embedding) {
+        cvEmbedding = parseStoredVector(profile.cv_embedding);
       }
-    } else {
-      results = hybridResult.data as HybridMatchRow[];
-      rpcError = hybridResult.error;
+      if (!cvEmbedding) {
+        cvEmbedding = await embedQuery(profileToEmbeddingText(parsed));
+      }
+      if (manualKeywords.length > 0) {
+        manualEmbedding = await embedQuery(manualKeywords.join(", "));
+      }
+    } catch (embedErr) {
+      const message =
+        embedErr instanceof Error ? embedErr.message : "Embedding failed";
+      return { error: `Failed to embed profile: ${message}` };
     }
 
-    if (rpcError) {
-      console.error("RPC error:", rpcError);
-      return { error: `Matching failed: ${rpcError.message || String(rpcError)}` };
-    }
+    const serviceClient = createServiceClient();
+    const results = await runMatchRpc(
+      serviceClient,
+      cvEmbedding,
+      manualEmbedding,
+      careerLevel,
+      user.id
+    );
 
     if (!results || results.length === 0) {
       return {
         data: {
           jobs: [],
-          pagination: {
-            currentPage: validPage,
-            totalPages: 0,
-            totalResults: 0,
-            hasNextPage: false,
-            hasPrevPage: false,
-          },
+          pagination: emptyPagination(validPage),
         },
       };
     }
 
-    // Calculate total pages based on actual results
-    const totalResults = Math.min(results.length, MAX_TOTAL_RESULTS);
+    const seniorityFiltered = filterJobsBySeniority(results, careerLevel);
+    const totalResults = Math.min(seniorityFiltered.length, MAX_TOTAL_RESULTS);
     const totalPages = Math.ceil(totalResults / validLimit);
+    const pageResults = seniorityFiltered.slice(offset, offset + validLimit);
 
-    // Slice results for current page
-    const pageResults = results.slice(offset, offset + validLimit) as HybridMatchRow[];
-
-    // Transform to MatchedJob format
-    const jobs: MatchedJob[] = pageResults.map((row) => ({
+    let jobs: MatchedJob[] = pageResults.map((row) => ({
       id: row.id,
       source: row.source,
       title: row.title,
       company: row.company,
       url: row.url,
       description: row.description || "",
-      similarity: row.match_score || row.distance || 0,
-      match_percent: Math.round(((row.match_score || row.distance || 0) * 100) || 0),
+      similarity: row.combined_score ?? row.match_score ?? 0,
+      match_percent: Math.round(
+        ((row.combined_score ?? row.match_score ?? 0) * 100) || 0
+      ),
     }));
 
-    // Perform deep LLM verification on the current page's jobs
     try {
       const verificationJobs = jobs.map((job) => ({
         job_id: job.id,
@@ -210,31 +152,21 @@ export async function getHybridMatchedJobs(
         description: job.description ?? "",
       }));
 
-      const parsedProfile: ParsedResume = {
-        technical_skills: profile.technical_skills || [],
-        soft_skills: profile.soft_skills || [],
-        years_experience: Number(profile.years_experience) || 0,
-        ideal_role: profile.ideal_role || "Software Engineer",
-      };
-
       const analysisMap = await performDeepVerification(
         verificationJobs,
-        parsedProfile,
+        parsed,
         manualKeywords
       );
 
-      // Enrich jobs with AI analysis data
-      jobs.forEach((job) => {
-        const analysis = analysisMap.get(job.id);
-        if (analysis) {
-          job.ai_analysis = analysis;
-        }
-      });
+      jobs = jobs.map((job) =>
+        mergeAiIntoMatchPercent(job, analysisMap.get(job.id))
+      );
+      jobs = applyVerificationFilter(jobs);
     } catch (verifyErr) {
-      // Non-blocking: Log but don't fail the entire request
-      const message = verifyErr instanceof Error ? verifyErr.message : "Verification failed";
-      console.error("Deep verification error:", message);
-      // Jobs still return with vector scores even if LLM verification fails
+      console.error(
+        "Deep verification error:",
+        verifyErr instanceof Error ? verifyErr.message : verifyErr
+      );
     }
 
     return {
@@ -250,7 +182,120 @@ export async function getHybridMatchedJobs(
       },
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch matched jobs";
+    const message =
+      err instanceof Error ? err.message : "Failed to fetch matched jobs";
     return { error: message };
   }
+}
+
+async function loadProfile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<ProfileRow | null> {
+  const fullSelect =
+    "technical_skills, soft_skills, years_experience, ideal_role, manual_top_keywords, career_level, target_seniority, experience_summary, graduation_year, cv_embedding";
+
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select(fullSelect)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error?.message?.includes("manual_top_keywords")) {
+    const fallback = await supabase
+      .from("user_profiles")
+      .select(
+        "technical_skills, soft_skills, years_experience, ideal_role, career_level, target_seniority, experience_summary"
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (fallback.error) return null;
+    return fallback.data
+      ? { ...fallback.data, manual_top_keywords: [], cv_embedding: null }
+      : null;
+  }
+
+  if (error || !data) return null;
+  return data as ProfileRow;
+}
+
+async function runMatchRpc(
+  serviceClient: ReturnType<typeof createServiceClient>,
+  cvEmbedding: number[],
+  manualEmbedding: number[] | null,
+  careerLevel: string,
+  userId: string
+): Promise<HybridMatchRow[]> {
+  const cvFormatted = formatVectorForPostgres(cvEmbedding);
+  const manualFormatted = manualEmbedding
+    ? formatVectorForPostgres(manualEmbedding)
+    : null;
+
+  const v2 = await serviceClient.rpc("match_jobs_hybrid_v2", {
+    cv_embedding: cvFormatted,
+    manual_embedding: manualFormatted,
+    p_career_level: careerLevel,
+    match_threshold: MATCH_THRESHOLD,
+    limit_count: MAX_TOTAL_RESULTS,
+    offset_count: 0,
+    p_user_id: userId,
+  });
+
+  if (!v2.error && v2.data) {
+    return v2.data as HybridMatchRow[];
+  }
+
+  const hybrid = await serviceClient.rpc("match_jobs_hybrid", {
+    cv_embedding: cvFormatted,
+    manual_embedding: manualFormatted,
+    match_threshold: MATCH_THRESHOLD,
+    limit_count: MAX_TOTAL_RESULTS,
+    offset_count: 0,
+    p_user_id: userId,
+  });
+
+  if (!hybrid.error && hybrid.data) {
+    return hybrid.data as HybridMatchRow[];
+  }
+
+  const fallback = await serviceClient.rpc("match_jobs", {
+    query_embedding: cvFormatted,
+    match_threshold: MATCH_THRESHOLD,
+    match_count: MAX_TOTAL_RESULTS,
+    p_user_id: userId,
+  });
+
+  if (fallback.error) {
+    throw new Error(fallback.error.message);
+  }
+
+  return (fallback.data ?? []).map(
+    (row: HybridMatchRow & { distance: number }) => ({
+      ...row,
+      match_score: 1 - row.distance,
+      combined_score: 1 - row.distance,
+    })
+  );
+}
+
+function parseStoredVector(stored: string): number[] | null {
+  try {
+    const trimmed = stored.trim();
+    if (trimmed.startsWith("[")) {
+      return JSON.parse(trimmed) as number[];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function emptyPagination(validPage: number) {
+  return {
+    currentPage: validPage,
+    totalPages: 0,
+    totalResults: 0,
+    hasNextPage: false,
+    hasPrevPage: false,
+  };
 }

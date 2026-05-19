@@ -113,6 +113,28 @@ EFINANCIAL = ListingSiteConfig(
     link_href_pattern=r"/jobs-|/job/",
 )
 
+CTGOODJOBS = ListingSiteConfig(
+    source_id="ctgoodjobs",
+    base_url="https://www.ctgoodjobs.hk",
+    search_path="/job/search?keyword={q}",
+    wait_selector="a[href*='/job/'], .job-list-item, h3 a",
+    card_link_selectors=[
+        "a[href*='/job/']",
+        ".job-title a",
+        "h3 a[href*='job']",
+        "[data-job-id] a",
+    ],
+    title_selectors=["h2", "h3", ".job-title", "[class*='title']"],
+    company_selectors=["[class*='company']", ".employer", "span"],
+    detail_selectors=[
+        "[class*='job-description']",
+        "[class*='description']",
+        "article",
+        "main",
+    ],
+    link_href_pattern=r"/job/",
+)
+
 CPJOBS = ListingSiteConfig(
     source_id="cpjobs",
     base_url="https://www.cpjobs.com",
@@ -141,6 +163,7 @@ HKSLASH = ListingSiteConfig(
     link_href_pattern=r"/jobs/\d|/jobs/[^/]+$",
 )
 
+scrape_ctgoodjobs = make_scraper(CTGOODJOBS)
 scrape_michael_page = make_scraper(MICHAEL_PAGE)
 scrape_randstad = make_scraper(RANDSTAD)
 scrape_robert_half = make_scraper(ROBERT_HALF)

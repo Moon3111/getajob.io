@@ -3,9 +3,10 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   distanceToMatchPercent,
-  embedText,
+  embedQuery,
   profileToEmbeddingText,
 } from "@/lib/nvidia";
+import { normalizeProfile } from "@/lib/profile/normalize";
 import { MATCH_LIMIT, MATCH_THRESHOLD } from "@/lib/matching-config";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
 
@@ -15,6 +16,7 @@ export async function getDashboardContext(): Promise<{
   isAuthenticated: boolean;
   profile: ParsedResume | null;
   jobSearchKeywords: string | null;
+  manualTopKeywords: string[];
   error?: string;
 }> {
   const supabase = await createClient();
@@ -23,14 +25,21 @@ export async function getDashboardContext(): Promise<{
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { isAuthenticated: false, profile: null, jobSearchKeywords: null };
+    return {
+      isAuthenticated: false,
+      profile: null,
+      jobSearchKeywords: null,
+      manualTopKeywords: [],
+    };
   }
 
-  const { profile, jobSearchKeywords, error } = await getUserProfile();
+  const { profile, jobSearchKeywords, manualTopKeywords, error } =
+    await getUserProfile();
   return {
     isAuthenticated: true,
     profile,
     jobSearchKeywords,
+    manualTopKeywords: manualTopKeywords ?? [],
     error,
   };
 }
@@ -38,6 +47,7 @@ export async function getDashboardContext(): Promise<{
 export async function getUserProfile(): Promise<{
   profile: ParsedResume | null;
   jobSearchKeywords: string | null;
+  manualTopKeywords?: string[];
   error?: string;
 }> {
   const supabase = await createClient();
@@ -46,33 +56,42 @@ export async function getUserProfile(): Promise<{
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { profile: null, jobSearchKeywords: null };
+    return { profile: null, jobSearchKeywords: null, manualTopKeywords: [] };
   }
 
   const { data, error } = await supabase
     .from("user_profiles")
     .select(
-      "technical_skills, soft_skills, years_experience, ideal_role, username, job_search_keywords"
+      "technical_skills, soft_skills, years_experience, ideal_role, username, job_search_keywords, career_level, target_seniority, experience_summary, manual_top_keywords"
     )
     .eq("user_id", user.id)
     .maybeSingle();
 
   if (error) {
-    return { profile: null, jobSearchKeywords: null, error: error.message };
+    return {
+      profile: null,
+      jobSearchKeywords: null,
+      manualTopKeywords: [],
+      error: error.message,
+    };
   }
 
   if (!data) {
-    return { profile: null, jobSearchKeywords: null };
+    return { profile: null, jobSearchKeywords: null, manualTopKeywords: [] };
   }
 
   return {
-    profile: {
+    profile: normalizeProfile({
       technical_skills: data.technical_skills ?? [],
       soft_skills: data.soft_skills ?? [],
       years_experience: Number(data.years_experience) || 0,
       ideal_role: data.ideal_role ?? "Software Engineer",
-    },
+      career_level: data.career_level ?? undefined,
+      target_seniority: data.target_seniority ?? undefined,
+      experience_summary: data.experience_summary ?? undefined,
+    }),
     jobSearchKeywords: data.job_search_keywords ?? null,
+    manualTopKeywords: (data.manual_top_keywords as string[] | null) ?? [],
   };
 }
 
@@ -152,8 +171,9 @@ export async function matchJobsForProfile(
       return { jobs: [], error: "No profile found. Upload a resume first." };
     }
 
-    const summary = profileToEmbeddingText(resolvedProfile);
-    const queryEmbedding = await embedText(summary);
+    const normalized = normalizeProfile(resolvedProfile);
+    const summary = profileToEmbeddingText(normalized);
+    const queryEmbedding = await embedQuery(summary);
 
     const supabase = createServiceClient();
     const { data, error } = await supabase.rpc("match_jobs", {

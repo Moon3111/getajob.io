@@ -23,7 +23,10 @@ export async function POST(request: NextRequest) {
       ? (JSON.parse(process.env.APIFY_ACTOR_INPUT) as Record<string, unknown>)
       : {
           keywords: process.env.APIFY_SEARCH_KEYWORDS ?? "software engineer",
-          location: process.env.APIFY_SEARCH_LOCATION ?? "Australia",
+          location:
+            process.env.APIFY_SEARCH_LOCATION ??
+            process.env.DEFAULT_JOB_REGION ??
+            "Hong Kong",
           maxItems: Number(process.env.APIFY_MAX_ITEMS ?? 50),
         };
 

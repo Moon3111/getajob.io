@@ -79,9 +79,11 @@ export function JobCard({
   const [hidden, setHidden] = useState(false);
   const [saved, setSaved] = useState(mode === "saved" || mode === "applied");
   const [applied, setApplied] = useState(mode === "applied");
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const handleDismiss = () => {
+    setActionError(null);
     setHidden(true);
     startTransition(async () => {
       const { ok, error } = await setMatchStatus(
@@ -91,7 +93,7 @@ export function JobCard({
       );
       if (!ok) {
         setHidden(false);
-        console.error(error);
+        setActionError(error ?? "Could not dismiss job");
         return;
       }
       onDismiss?.(job.id);
@@ -100,16 +102,20 @@ export function JobCard({
   };
 
   const handleSave = () => {
+    setActionError(null);
     startTransition(async () => {
       const { ok, error } = await setMatchStatus(job.id, "saved", job.similarity);
       if (ok) {
         setSaved(true);
         onStatusChange?.(job.id);
-      } else console.error(error);
+      } else {
+        setActionError(error ?? "Could not save job");
+      }
     });
   };
 
   const handleApplied = () => {
+    setActionError(null);
     startTransition(async () => {
       const { ok, error } = await setMatchStatus(
         job.id,
@@ -120,7 +126,9 @@ export function JobCard({
         setApplied(true);
         setSaved(true);
         onStatusChange?.(job.id);
-      } else console.error(error);
+      } else {
+        setActionError(error ?? "Could not update status");
+      }
     });
   };
 
@@ -179,6 +187,12 @@ export function JobCard({
           </div>
         </div>
       </CardHeader>
+
+      {actionError && (
+        <CardContent className="py-2">
+          <p className="text-sm text-destructive">{actionError}</p>
+        </CardContent>
+      )}
 
       {job.description && (
         <CardContent>

@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { embedText } from "@/lib/nvidia";
+import { embedPassage, jobToEmbeddingText } from "@/lib/nvidia";
+import { inferSeniorityLevel } from "@/lib/jobs/seniority";
 import type { IngestResult, ScraperJobInput } from "@/lib/types";
 
 const DEDUP_THRESHOLD = 0.95;
@@ -19,7 +20,14 @@ export async function ingestJobListings(
         continue;
       }
 
-      const embedding = await embedText(job.description);
+      const seniorityLevel = inferSeniorityLevel(job.title, job.description);
+      const embedding = await embedPassage(
+        jobToEmbeddingText({
+          title: job.title,
+          company: job.company,
+          description: job.description,
+        })
+      );
 
       const { data: similar } = await supabase.rpc("find_similar_jobs", {
         query_embedding: embedding,
@@ -32,17 +40,32 @@ export async function ingestJobListings(
         continue;
       }
 
-      const { data: insertedJob, error: jobError } = await supabase
+      const jobRow: Record<string, unknown> = {
+        source: job.source ?? "scraper",
+        title: job.title,
+        company: job.company,
+        url: job.url ?? "",
+        description: job.description,
+        seniority_level: seniorityLevel,
+      };
+
+      let insertResult = await supabase
         .from("jobs")
-        .insert({
-          source: job.source ?? "scraper",
-          title: job.title,
-          company: job.company,
-          url: job.url ?? "",
-          description: job.description,
-        })
+        .insert(jobRow)
         .select("id")
         .single();
+
+      if (insertResult.error?.message?.includes("seniority_level")) {
+        const { seniority_level: _s, ...withoutLevel } = jobRow;
+        insertResult = await supabase
+          .from("jobs")
+          .insert(withoutLevel)
+          .select("id")
+          .single();
+      }
+
+      const insertedJob = insertResult.data;
+      const jobError = insertResult.error;
 
       if (jobError || !insertedJob) {
         result.errors.push(

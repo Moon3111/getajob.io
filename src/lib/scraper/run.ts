@@ -73,21 +73,26 @@ export async function scrapeAndIngestForKeywords(
     );
   }
 
-  const usePython =
+  const pythonAvailable =
     process.env.SCRAPER_ENABLED !== "false" && isPythonScraperAvailable();
+  const usePython = pythonAvailable && !quick;
 
   if (usePython) {
     const { jobs, errors } = await runPythonScraper({
       keywords: trimmed,
       maxPerSource,
-      sources: quick ? uploadSources : fullSources,
+      sources: fullSources,
       timeoutMs: pythonTimeoutMs,
     });
     collected.push(...jobs);
     if (errors.length) warnings.push(...errors);
-  } else if (!quick) {
+  } else if (quick) {
     warnings.push(
-      "Python scraper not found locally. Install scraper/.venv for Indeed and JobsDB."
+      "Loaded government vacancies first. Use Scrape & match on the dashboard for Indeed, JobsDB, and agencies (runs in the background)."
+    );
+  } else if (!pythonAvailable) {
+    warnings.push(
+      "Python scraper not found. Install scraper/.venv for Indeed and JobsDB."
     );
   }
 

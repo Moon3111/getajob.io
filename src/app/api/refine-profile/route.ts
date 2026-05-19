@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
-  embedText,
+  embedQuery,
   extractKeywordsFromJobs,
   profileToEmbeddingText,
 } from "@/lib/nvidia";
-import type { ParsedResume } from "@/lib/types";
+import { normalizeProfile } from "@/lib/profile/normalize";
+import { persistProfileEmbeddings } from "@/lib/profile/embeddings";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -53,33 +54,40 @@ export async function POST() {
   try {
     keywords = await extractKeywordsFromJobs(descriptions as string[]);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to extract keywords";
+    const message =
+      err instanceof Error ? err.message : "Failed to extract keywords";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
   const { data: existing } = await supabase
     .from("user_profiles")
-    .select("technical_skills, soft_skills, years_experience, ideal_role")
+    .select(
+      "technical_skills, soft_skills, years_experience, ideal_role, career_level, target_seniority, experience_summary"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const profile: ParsedResume = {
+  const profile = normalizeProfile({
     technical_skills: Array.from(
       new Set([...(existing?.technical_skills ?? []), ...keywords])
     ).slice(0, 40),
     soft_skills: existing?.soft_skills ?? [],
     years_experience: Number(existing?.years_experience) || 0,
     ideal_role: existing?.ideal_role ?? "Software Engineer",
-  };
+    career_level: existing?.career_level ?? undefined,
+    target_seniority: existing?.target_seniority ?? undefined,
+    experience_summary: existing?.experience_summary ?? undefined,
+  });
 
   const embeddingText =
     profileToEmbeddingText(profile) +
     (keywords.length ? `\nPreferred themes: ${keywords.join(", ")}` : "");
 
   try {
-    await embedText(embeddingText);
+    await embedQuery(embeddingText);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to embed profile";
+    const message =
+      err instanceof Error ? err.message : "Failed to embed profile";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 
@@ -90,6 +98,8 @@ export async function POST() {
       soft_skills: profile.soft_skills,
       years_experience: profile.years_experience,
       ideal_role: profile.ideal_role,
+      career_level: profile.career_level,
+      target_seniority: profile.target_seniority,
       skills: { technical: profile.technical_skills, refined_keywords: keywords },
       updated_at: new Date().toISOString(),
     },
@@ -100,8 +110,14 @@ export async function POST() {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
+  try {
+    await persistProfileEmbeddings(supabase, user.id, profile);
+  } catch {
+    /* optional columns */
+  }
+
   return NextResponse.json({
     profile,
-    keywordsAdded: keywords,
+    keywords_added: keywords.length,
   });
 }

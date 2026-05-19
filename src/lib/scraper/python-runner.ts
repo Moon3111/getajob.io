@@ -4,7 +4,7 @@ import path from "path";
 import type { ScraperJobInput } from "@/lib/types";
 
 const DEFAULT_SOURCES =
-  "indeed,jobsdb,jobs_gov,michael_page,hkslash";
+  "indeed,jobsdb,ctgoodjobs,jobs_gov,michael_page,hkslash";
 
 function resolvePythonBin(): string | null {
   const envPath = process.env.SCRAPER_PYTHON_PATH?.trim();

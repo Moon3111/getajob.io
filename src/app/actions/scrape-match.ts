@@ -34,9 +34,21 @@ export async function scrapeAndMatchWithKeywords(
     job_search_keywords: trimmed,
   });
 
-  const scrape = await scrapeAndIngestForKeywords(trimmed, {
-    quick: options?.quick ?? false,
-  });
+  let scrape;
+  try {
+    scrape = await scrapeAndIngestForKeywords(trimmed, {
+      quick: options?.quick ?? false,
+      maxTotal: options?.quick ? 6 : undefined,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Scrape failed";
+    return {
+      ok: false,
+      error: message.includes("fetch")
+        ? "Scrape timed out. Try again from the dashboard with fewer sources."
+        : message,
+    };
+  }
 
   await updateUserProfile(supabase, user.id, {
     last_scrape_at: new Date().toISOString(),
@@ -52,13 +64,21 @@ export async function scrapeAndMatchWithKeywords(
     };
   }
 
-  const { jobs, error: matchError } = await matchJobsForProfile();
+  let matchCount = scrape.inserted + scrape.duplicates;
+  let matchError: string | undefined;
+
+  if (!options?.quick) {
+    const match = await matchJobsForProfile();
+    matchCount = match.jobs.length;
+    matchError = match.error;
+  }
+
   revalidatePath("/dashboard");
 
   return {
     ok: true,
     inserted: scrape.inserted,
-    matchCount: jobs.length,
+    matchCount,
     warnings: [
       ...scrape.warnings,
       ...(matchError ? [matchError] : []),

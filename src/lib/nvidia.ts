@@ -1,7 +1,6 @@
 import { MAX_RESUME_CHARS_FOR_NIM } from "@/lib/upload-limits";
 
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
-/** Llama 3 70B was retired; catalog uses 3.1 — https://build.nvidia.com/meta/llama-3_1-70b-instruct */
 const DEFAULT_CHAT_MODEL = "meta/llama-3.1-70b-instruct";
 const EMBED_MODEL = "nvidia/nv-embedqa-e5-v5";
 const MAX_EMBED_CHARS = 8_000;
@@ -28,16 +27,34 @@ export class NimParseError extends Error {
   }
 }
 
-export async function parseResumeWithNim(resumeText: string) {
+export interface NimParsedResume {
+  technical_skills: string[];
+  soft_skills: string[];
+  years_experience: number;
+  ideal_role: string;
+  career_level?: string;
+  target_seniority?: string;
+  experience_summary?: string;
+  graduation_year?: number | null;
+}
+
+export async function parseResumeWithNim(
+  resumeText: string
+): Promise<NimParsedResume> {
   const truncated = resumeText.slice(0, MAX_RESUME_CHARS_FOR_NIM);
 
-  const systemPrompt = `You are a resume parser. Extract structured data from the resume text.
-You MUST respond with ONLY a valid JSON object — no markdown, no explanation.
+  const systemPrompt = `You are an expert Hong Kong career coach and resume parser.
+Extract structured data for job matching. Respond with ONLY valid JSON (no markdown).
+
 Required keys:
-- "technical_skills": array of strings
-- "soft_skills": array of strings
-- "years_experience": number (estimate total years if unclear)
-- "ideal_role": string (best-fit job title)`;
+- "technical_skills": string[] (max 25, normalized, unique)
+- "soft_skills": string[]
+- "years_experience": number (0 for students/interns; count only paid full-time work)
+- "ideal_role": string (realistic next role for this candidate NOW, not aspirational C-level)
+- "career_level": one of "intern" | "graduate" | "junior" | "mid" | "senior" | "lead" | "executive"
+- "target_seniority": same enum — roles they should apply for NOW
+- "experience_summary": string (2-3 sentences; include level cues e.g. "fresh graduate seeking entry-level")
+- "graduation_year": number or null`;
 
   const response = await fetch(`${NIM_BASE}/chat/completions`, {
     method: "POST",
@@ -49,13 +66,10 @@ Required keys:
       model: getChatModel(),
       messages: [
         { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Parse this resume:\n\n${truncated}`,
-        },
+        { role: "user", content: `Parse this resume:\n\n${truncated}` },
       ],
       temperature: 0.1,
-      max_tokens: 1024,
+      max_tokens: 1536,
     }),
   });
 
@@ -73,18 +87,16 @@ Required keys:
   const jsonStr = content.replace(/^```json?\s*/i, "").replace(/```\s*$/i, "");
 
   try {
-    return JSON.parse(jsonStr) as {
-      technical_skills: string[];
-      soft_skills: string[];
-      years_experience: number;
-      ideal_role: string;
-    };
+    return JSON.parse(jsonStr) as NimParsedResume;
   } catch {
     throw new NimParseError("AI returned invalid JSON", "invalid_json");
   }
 }
 
-export async function embedText(text: string): Promise<number[]> {
+async function embedWithRole(
+  text: string,
+  input_type: "query" | "passage"
+): Promise<number[]> {
   const response = await fetch(`${NIM_BASE}/embeddings`, {
     method: "POST",
     headers: {
@@ -94,7 +106,7 @@ export async function embedText(text: string): Promise<number[]> {
     body: JSON.stringify({
       model: EMBED_MODEL,
       input: [text.slice(0, MAX_EMBED_CHARS)],
-      input_type: "query",
+      input_type,
     }),
   });
 
@@ -111,22 +123,55 @@ export async function embedText(text: string): Promise<number[]> {
   return vector;
 }
 
+/** Candidate / profile queries */
+export async function embedQuery(text: string): Promise<number[]> {
+  return embedWithRole(text, "query");
+}
+
+/** Job descriptions at ingest */
+export async function embedPassage(text: string): Promise<number[]> {
+  return embedWithRole(text, "passage");
+}
+
+/** @deprecated Use embedQuery or embedPassage */
+export async function embedText(text: string): Promise<number[]> {
+  return embedQuery(text);
+}
+
 export function profileToEmbeddingText(
   profile: {
     technical_skills: string[];
     soft_skills: string[];
     years_experience: number;
     ideal_role: string;
+    career_level: string;
+    target_seniority: string;
+    experience_summary?: string;
   },
   region = process.env.DEFAULT_JOB_REGION ?? "Hong Kong"
 ): string {
+  const summary =
+    profile.experience_summary ||
+    `${profile.career_level} professional targeting ${profile.target_seniority} positions.`;
+
   return [
     `Preferred region: ${region}`,
     `Ideal role: ${profile.ideal_role}`,
+    `Career level: ${profile.career_level}`,
+    `Target seniority: ${profile.target_seniority}`,
     `Years of experience: ${profile.years_experience}`,
+    `Summary: ${summary}`,
     `Technical skills: ${profile.technical_skills.join(", ")}`,
     `Soft skills: ${profile.soft_skills.join(", ")}`,
   ].join("\n");
+}
+
+export function jobToEmbeddingText(job: {
+  title: string;
+  company: string;
+  description: string;
+}): string {
+  return `${job.title}\n${job.company}\n${job.description}`;
 }
 
 export async function extractKeywordsFromJobs(
@@ -174,7 +219,6 @@ export async function extractKeywordsFromJobs(
   }
 }
 
-/** Cosine similarity from pgvector distance: similarity = 1 - distance */
 export function distanceToMatchPercent(distance: number): number {
   const similarity = Math.max(0, Math.min(1, 1 - distance));
   return Math.round(similarity * 100);

@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { Loader2, MapPin, RefreshCw, Search, Sparkles } from "lucide-react";
-import {
-  getJobsByMatchStatus,
-  matchJobsForProfile,
-} from "@/app/actions/match-jobs";
+import { getJobsByMatchStatus } from "@/app/actions/match-jobs";
 import { scrapeAndMatchWithKeywords } from "@/app/actions/scrape-match";
 import { seedHongKongJobs } from "@/app/actions/seed-jobs";
 import { saveManualKeywords } from "@/app/actions/save-manual-keywords";
@@ -18,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { PaginatedJobFeed } from "@/components/PaginatedJobFeed";
 import { ManualKeywordsInput } from "@/components/ManualKeywordsInput";
 import { DEFAULT_REGION } from "@/lib/matching-config";
+import { careerLevelLabel } from "@/lib/jobs/seniority";
 import type { MatchedJob, ParsedResume } from "@/lib/types";
 import type { UploadPipelinePhase } from "@/lib/upload-pipeline";
 import { cn } from "@/lib/utils";
@@ -29,8 +27,10 @@ interface DashboardClientProps {
   isAuthenticated: boolean;
   profileError?: string;
   initialKeywords?: string | null;
+  initialManualKeywords?: string[];
   scrapeNotice?: string;
   fromUpload?: boolean;
+  autoScrape?: boolean;
   showMatchingPipeline?: boolean;
 }
 
@@ -39,13 +39,15 @@ export function DashboardClient({
   isAuthenticated,
   profileError,
   initialKeywords = null,
+  initialManualKeywords = [],
   scrapeNotice,
   fromUpload = false,
+  autoScrape = false,
   showMatchingPipeline = false,
 }: DashboardClientProps) {
   const [profile] = useState<ParsedResume | null>(initialProfile);
   const [tab, setTab] = useState<DashboardTab>("matches");
-  const [jobs, setJobs] = useState<MatchedJob[]>([]);
+  const [matchFeedTotal, setMatchFeedTotal] = useState(0);
   const [savedJobs, setSavedJobs] = useState<MatchedJob[]>([]);
   const [appliedJobs, setAppliedJobs] = useState<MatchedJob[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +63,15 @@ export function DashboardClient({
     scrapeNotice ?? null
   );
 
-  const [matchingActive, setMatchingActive] = useState(showMatchingPipeline);
+  const [matchingActive, setMatchingActive] = useState(
+    showMatchingPipeline || autoScrape
+  );
   const [matchingComplete, setMatchingComplete] = useState(false);
   const [matchingError, setMatchingError] = useState<string | null>(null);
+  const [autoScrapeStarted, setAutoScrapeStarted] = useState(false);
+  const [pipelinePhase, setPipelinePhase] = useState<UploadPipelinePhase | null>(
+    autoScrape ? "scraping" : null
+  );
 
   const loadSavedAndApplied = useCallback(() => {
     startTransition(async () => {
@@ -76,29 +84,15 @@ export function DashboardClient({
     });
   }, []);
 
-  const loadMatches = useCallback(() => {
-    setMatchingActive(true);
-    setMatchingError(null);
-
-    startTransition(async () => {
-      const { jobs: matched, error: matchError } = await matchJobsForProfile();
-      if (matchError) {
-        setMatchingError(matchError);
-        setError(matchError);
-        setMatchingActive(false);
-        return;
-      }
-      setJobs(matched);
-      setMatchingComplete(true);
-      setMatchingActive(false);
-      setError(null);
-      loadSavedAndApplied();
-    });
-  }, [loadSavedAndApplied]);
+  const refreshMatchFeed = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("job-feed-refresh"));
+    setMatchingComplete(true);
+    setMatchingActive(false);
+  }, []);
 
   const loadTabData = useCallback(() => {
     if (tab === "matches") {
-      loadMatches();
+      refreshMatchFeed();
       return;
     }
     startTransition(async () => {
@@ -113,21 +107,69 @@ export function DashboardClient({
       else setAppliedJobs(listed);
       setError(null);
     });
-  }, [tab, loadMatches]);
+  }, [tab, refreshMatchFeed]);
 
   useEffect(() => {
     if (profile) {
-      loadMatches();
+      loadSavedAndApplied();
     }
-  }, [profile, loadMatches]);
+  }, [profile, loadSavedAndApplied]);
+
+  useEffect(() => {
+    if (!profile || !autoScrape || autoScrapeStarted) return;
+
+    const kw = (initialKeywords ?? searchKeywords).trim();
+    if (!kw) return;
+
+    setAutoScrapeStarted(true);
+    setScraping(true);
+    setMatchingActive(true);
+    setPipelinePhase("scraping");
+    setScrapeFeedback("Loading government jobs and matching your profile…");
+
+    (async () => {
+      try {
+        const result = await scrapeAndMatchWithKeywords(kw, { quick: true });
+        setPipelinePhase("matching");
+        if (!result.ok) {
+          setMatchingError(result.error ?? "Scrape failed");
+          setError(result.error ?? "Scrape failed");
+          setScrapeFeedback(null);
+        } else {
+          setScrapeFeedback(
+            `Added ${result.inserted ?? 0} jobs · ${result.matchCount ?? 0} matches. Use Scrape & match for Indeed/JobsDB.`
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Scrape failed";
+        setMatchingError(msg);
+        setError(
+          msg.toLowerCase().includes("fetch")
+            ? "Scrape timed out. Click Scrape & match below to retry with full sources."
+            : msg
+        );
+      } finally {
+        setScraping(false);
+        setMatchingActive(false);
+        setMatchingComplete(true);
+        window.dispatchEvent(new CustomEvent("job-feed-refresh"));
+      }
+    })();
+  }, [
+    profile,
+    autoScrape,
+    autoScrapeStarted,
+    initialKeywords,
+    searchKeywords,
+  ]);
 
   useEffect(() => {
     if (!profile || tab === "matches") return;
     loadTabData();
   }, [tab, profile, loadTabData]);
 
-  const handleDismiss = (jobId: string) => {
-    setJobs((prev) => prev.filter((j) => j.id !== jobId));
+  const handleDismiss = (_jobId: string) => {
+    setMatchFeedTotal((n) => Math.max(0, n - 1));
   };
 
   const handleSeedJobs = async () => {
@@ -143,7 +185,7 @@ export function DashboardClient({
           result.message ??
             `Inserted ${result.inserted}, skipped ${result.duplicates} duplicates.`
         );
-        loadMatches();
+        refreshMatchFeed();
         setTab("matches");
       }
     } catch (err) {
@@ -171,7 +213,7 @@ export function DashboardClient({
       setScrapeFeedback(
         `Scraped ${result.inserted ?? 0} new jobs · ${result.matchCount ?? 0} matches`
       );
-      loadMatches();
+      refreshMatchFeed();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Scrape failed");
     } finally {
@@ -186,7 +228,7 @@ export function DashboardClient({
       const res = await fetch("/api/refine-profile", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Refine failed");
-      loadMatches();
+      refreshMatchFeed();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Refine failed");
     } finally {
@@ -194,13 +236,19 @@ export function DashboardClient({
     }
   };
 
-  const completedPhases = new Set<UploadPipelinePhase>(
-    matchingComplete
-      ? ["parsing", "analyzing", "scraping", "matching"]
-      : fromUpload
-        ? ["parsing", "analyzing", "scraping"]
-        : ["parsing", "analyzing"]
-  );
+  const completedPhases = new Set<UploadPipelinePhase>([
+    "parsing",
+    "analyzing",
+  ]);
+  if (
+    (fromUpload || autoScrape) &&
+    (pipelinePhase === "matching" || matchingComplete)
+  ) {
+    completedPhases.add("scraping");
+  }
+  if (matchingComplete) {
+    completedPhases.add("matching");
+  }
 
   if (!profile) {
     return (
@@ -251,11 +299,10 @@ export function DashboardClient({
   const showPipeline =
     showMatchingPipeline && (matchingActive || matchingError || matchingComplete);
 
-  const activeJobs =
-    tab === "matches" ? jobs : tab === "saved" ? savedJobs : appliedJobs;
+  const activeJobs = tab === "saved" ? savedJobs : appliedJobs;
 
   const tabLabels: { id: DashboardTab; label: string; count: number }[] = [
-    { id: "matches", label: "Matches", count: jobs.length },
+    { id: "matches", label: "Matches", count: matchFeedTotal },
     { id: "saved", label: "Saved", count: savedJobs.length },
     { id: "applied", label: "Applied", count: appliedJobs.length },
   ];
@@ -358,7 +405,9 @@ export function DashboardClient({
 
       {showPipeline && tab === "matches" && (
         <UploadProgressChecklist
-          activePhase={matchingActive ? "matching" : null}
+          activePhase={
+            pipelinePhase ?? (matchingActive ? "matching" : null)
+          }
           completedPhases={completedPhases}
           errorPhase={matchingError ? "matching" : null}
           errorMessage={matchingError}
@@ -367,7 +416,11 @@ export function DashboardClient({
 
       <div className="flex flex-wrap gap-2">
         <Badge variant="secondary">
-          {profile.years_experience}+ years experience
+          {careerLevelLabel(profile.career_level)}
+        </Badge>
+        <Badge variant="outline">
+          {profile.years_experience} yrs · targeting{" "}
+          {careerLevelLabel(profile.target_seniority)}
         </Badge>
         {profile.technical_skills.slice(0, 6).map((skill) => (
           <Badge key={skill} variant="outline">
@@ -388,38 +441,12 @@ export function DashboardClient({
         </div>
       )}
 
-      {tab === "matches" &&
-      !showPipeline &&
-      isPending &&
-      jobs.length === 0 ? (
-        <div className="flex items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="mr-2 h-6 w-6 animate-spin" />
-          Finding your best matches…
-        </div>
-      ) : activeJobs.length === 0 && !error && !matchingActive ? (
+      {tab !== "matches" &&
+      activeJobs.length === 0 &&
+      !error &&
+      !matchingActive ? (
         <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
-          {tab === "matches" ? (
-            <>
-              <p>No matching jobs in the database yet.</p>
-              <p className="mt-2 text-sm">
-                Load sample Hong Kong listings, run the Python scraper
-                (Indeed, JobsDB, jobs.gov.hk, agencies), or connect Apify.
-              </p>
-              {isAuthenticated && (
-                <Button
-                  className="mt-6"
-                  disabled={seeding}
-                  onClick={handleSeedJobs}
-                >
-                  {seeding ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    "Load Hong Kong sample jobs"
-                  )}
-                </Button>
-              )}
-            </>
-          ) : tab === "saved" ? (
+          {tab === "saved" ? (
             <p>Save jobs from Matches with the thumbs-up button.</p>
           ) : (
             <p>Mark saved jobs as applied to track your applications.</p>
@@ -432,11 +459,13 @@ export function DashboardClient({
             {tab === "matches" && (
               <div className="mt-6">
                 <ManualKeywordsInput
+                  initialKeywords={initialManualKeywords}
                   onSave={async (keywords: string[]) => {
                     const result = await saveManualKeywords(keywords);
                     if (!result.ok) {
                       throw new Error(result.error || "Failed to save keywords");
                     }
+                    refreshMatchFeed();
                   }}
                 />
               </div>
@@ -449,6 +478,7 @@ export function DashboardClient({
                 onJobDismiss={handleDismiss}
                 onJobSave={() => loadSavedAndApplied()}
                 onJobApply={() => loadSavedAndApplied()}
+                onResultsChange={setMatchFeedTotal}
               />
             ) : (
               <div className="grid gap-6 md:grid-cols-2">

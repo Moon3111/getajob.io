@@ -1,8 +1,9 @@
-import type { AIAnalysis, MatchedJob, ParsedResume } from "@/lib/types";
+import type { AIAnalysis, ParsedResume } from "@/lib/types";
+import { careerLevelLabel } from "@/lib/jobs/seniority";
 
 const NIM_BASE = "https://integrate.api.nvidia.com/v1";
 const CHAT_MODEL = process.env.NVIDIA_NIM_CHAT_MODEL || "meta/llama-3.1-70b-instruct";
-const VERIFICATION_TIMEOUT = 8000; // 8 seconds max for batch
+const VERIFICATION_TIMEOUT = 10_000;
 
 interface VerificationJob {
   job_id: string;
@@ -27,35 +28,30 @@ function getApiKey(): string {
   return key;
 }
 
-/**
- * Truncates text to prevent excessive token usage in LLM calls
- */
 function truncateText(text: string, maxChars: number = 500): string {
   if (text.length <= maxChars) return text;
   return text.slice(0, maxChars) + "...";
 }
 
-/**
- * Builds a concise profile summary from parsed resume
- */
 function buildProfileSummary(profile: ParsedResume): string {
   const skills = profile.technical_skills.slice(0, 8).join(", ");
   const softSkills = profile.soft_skills.slice(0, 3).join(", ");
 
   return [
     `Role: ${profile.ideal_role}`,
-    `Years: ${profile.years_experience}+`,
+    `Career level: ${careerLevelLabel(profile.career_level)}`,
+    `Target seniority: ${careerLevelLabel(profile.target_seniority)}`,
+    `Years experience: ${profile.years_experience}`,
     skills ? `Technical Skills: ${skills}` : "",
     softSkills ? `Soft Skills: ${softSkills}` : "",
+    profile.experience_summary
+      ? `Summary: ${profile.experience_summary}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-/**
- * Deeply analyzes a batch of 10 jobs against user's profile using NVIDIA NIM
- * Returns structured AI analysis for each job with timeout protection
- */
 export async function performDeepVerification(
   jobs: VerificationJob[],
   profile: ParsedResume,
@@ -63,17 +59,17 @@ export async function performDeepVerification(
 ): Promise<Map<string, AIAnalysis | null>> {
   const resultMap = new Map<string, AIAnalysis | null>();
 
-  // Early return if no jobs
   if (jobs.length === 0) {
     return resultMap;
   }
 
   try {
-    // Build context strings
     const profileSummary = buildProfileSummary(profile);
     const targetKeywords = manualKeywords.slice(0, 5).join(", ");
+    const isEntryLevel = ["intern", "graduate", "junior"].includes(
+      profile.target_seniority
+    );
 
-    // Format jobs for the prompt
     const jobsText = jobs
       .map(
         (job, idx) =>
@@ -85,31 +81,35 @@ export async function performDeepVerification(
       )
       .join("\n\n");
 
-    // Construct the system prompt
-    const systemPrompt = `You are an expert resume and job matching analyst. 
-Analyze each job deeply against the provided candidate profile.
-Return ONLY a valid JSON array with exactly ${jobs.length} objects matching this schema:
+    const systemPrompt = `You are an expert Hong Kong job matching analyst.
+Analyze each job against the candidate profile.
+Return ONLY a valid JSON array with exactly ${jobs.length} objects:
 [
   {
     "job_id": "string",
     "relevance_rating": "EXCELLENT" | "GOOD" | "FAIR" | "MISMATCH",
     "fit_percentage": number (0-100),
-    "analysis_summary": "1-2 sentence explanation of fit",
-    "missing_keywords": ["array", "of", "missing", "keywords"]
+    "analysis_summary": "1-2 sentence explanation",
+    "missing_keywords": ["skill gaps"]
   }
 ]
-CRITICAL: Return ONLY the JSON array. No markdown, no explanation.`;
+
+Rules:
+- If candidate is intern/graduate/junior, jobs requiring 5+ years OR titles like Senior/Lead/Director/Head/VP MUST be "MISMATCH" with fit_percentage under 30.
+- Penalize overqualified roles for entry-level candidates heavily.
+- No markdown. JSON array only.`;
 
     const userPrompt = `CANDIDATE PROFILE:
 ${profileSummary}
 
-TARGET KEYWORDS (Top 5 priorities):
-${targetKeywords || "None specified"}
+ENTRY_LEVEL_CANDIDATE: ${isEntryLevel ? "YES — reject senior/executive roles" : "NO"}
 
-JOBS TO ANALYZE:
+TARGET KEYWORDS:
+${targetKeywords || "None"}
+
+JOBS:
 ${jobsText}`;
 
-    // Call NVIDIA NIM with timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), VERIFICATION_TIMEOUT);
 
@@ -126,7 +126,7 @@ ${jobsText}`;
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
           ],
-          temperature: 0.3, // Low temp for consistency
+          temperature: 0.2,
           max_tokens: 2048,
         }),
         signal: controller.signal,
@@ -135,9 +135,6 @@ ${jobsText}`;
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const err = await response.text();
-        console.error("NIM API error:", response.status, err);
-        // Return null analyses for all jobs on API failure
         jobs.forEach((job) => resultMap.set(job.job_id, null));
         return resultMap;
       }
@@ -146,48 +143,39 @@ ${jobsText}`;
       const content = data.choices?.[0]?.message?.content?.trim();
 
       if (!content) {
-        console.warn("Empty response from NIM");
         jobs.forEach((job) => resultMap.set(job.job_id, null));
         return resultMap;
       }
 
-      // Parse JSON safely
       let analyses: VerificationResponse[];
       try {
-        // Strip markdown code blocks if present
         const jsonStr = content
           .replace(/^```json?\s*/i, "")
           .replace(/```\s*$/i, "")
           .trim();
-
         analyses = JSON.parse(jsonStr);
-
-        if (!Array.isArray(analyses)) {
-          throw new Error("Response is not an array");
-        }
-      } catch (parseErr) {
-        console.error("Failed to parse NIM response:", parseErr, "Content:", content);
+        if (!Array.isArray(analyses)) throw new Error("Not array");
+      } catch {
         jobs.forEach((job) => resultMap.set(job.job_id, null));
         return resultMap;
       }
 
-      // Map results back to job IDs with validation
       for (const analysis of analyses) {
         if (!analysis.job_id) continue;
 
-        const validated: AIAnalysis = {
+        resultMap.set(analysis.job_id, {
           relevance_rating: validateRating(analysis.relevance_rating),
-          fit_percentage: Math.min(100, Math.max(0, analysis.fit_percentage || 0)),
-          analysis_summary: (analysis.analysis_summary || "").slice(0, 200),
+          fit_percentage: Math.min(
+            100,
+            Math.max(0, analysis.fit_percentage || 0)
+          ),
+          analysis_summary: (analysis.analysis_summary || "").slice(0, 280),
           missing_keywords: (analysis.missing_keywords || [])
             .filter((k) => typeof k === "string")
             .slice(0, 5),
-        };
-
-        resultMap.set(analysis.job_id, validated);
+        });
       }
 
-      // Fill in any missing job IDs with null (if NIM didn't return them)
       jobs.forEach((job) => {
         if (!resultMap.has(job.job_id)) {
           resultMap.set(job.job_id, null);
@@ -197,25 +185,17 @@ ${jobsText}`;
       return resultMap;
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        console.error("Deep verification timeout exceeded");
-      } else {
-        console.error("Deep verification error:", err);
+        console.error("Deep verification timeout");
       }
-      // Return null analyses for all jobs on error
       jobs.forEach((job) => resultMap.set(job.job_id, null));
       return resultMap;
     }
-  } catch (err) {
-    console.error("Deep verification setup error:", err);
-    // Return null analyses for all jobs
+  } catch {
     jobs.forEach((job) => resultMap.set(job.job_id, null));
     return resultMap;
   }
 }
 
-/**
- * Validates and normalizes relevance rating
- */
 function validateRating(
   rating: unknown
 ): "EXCELLENT" | "GOOD" | "FAIR" | "MISMATCH" {
@@ -223,5 +203,5 @@ function validateRating(
   if (typeof rating === "string" && valid.includes(rating.toUpperCase())) {
     return rating.toUpperCase() as "EXCELLENT" | "GOOD" | "FAIR" | "MISMATCH";
   }
-  return "FAIR"; // Default fallback
+  return "FAIR";
 }

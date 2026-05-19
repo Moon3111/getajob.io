@@ -1,8 +1,14 @@
+import type { SeniorityLevel } from "@/lib/jobs/seniority";
+
 export interface ParsedResume {
   technical_skills: string[];
   soft_skills: string[];
   years_experience: number;
   ideal_role: string;
+  career_level: SeniorityLevel;
+  target_seniority: SeniorityLevel;
+  experience_summary?: string;
+  graduation_year?: number | null;
 }
 
 export interface AIAnalysis {
