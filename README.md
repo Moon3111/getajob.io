@@ -1,4 +1,4 @@
-# getajob.io
+# gradjobfinder
 
 AI-powered job matching: upload a resume, parse it with NVIDIA NIM, and find semantically similar roles via Supabase pgvector.
 
